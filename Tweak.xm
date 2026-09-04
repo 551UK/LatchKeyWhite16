@@ -7,12 +7,7 @@
 @end
 
 @interface SBUIProudLockIconView : UIView
-- (long long)state;
 - (void)setState:(long long)state animated:(BOOL)animated options:(long long)options completion:(id)completion;
-@end
-
-@interface SBUIProudLockContainerViewController : UIViewController
-- (long long)_actualIconState;
 @end
 
 static NSString * const LKWPrefsDomain = @"com.551.latchkeywhite16";
@@ -66,35 +61,9 @@ static NSBundle *LKWFaceIDWhiteBundle(void) {
     return bundle;
 }
 
-static void LKWCompleteStateRequest(id completion) {
-    if (!completion) return;
-    void (^block)(BOOL) = completion;
-    block(NO);
-}
-
-%hook SBUIProudLockContainerViewController
-
-// iOS 16 clears the proud-lock icon by moving from state 2 (Unlocked)
-// to state 0 (None) after Face ID succeeds. Original LatchKey leaves the
-// unlocked tick visible, so keep state 2 until the lock genuinely resets.
-- (void)_setIconState:(long long)state
-             animated:(BOOL)animated
-              options:(long long)options
-                force:(BOOL)force
-           completion:(id)completion {
-    if (enabled && [self _actualIconState] == 2 && state == 0) {
-        LKWCompleteStateRequest(completion);
-        return;
-    }
-
-    %orig(state, animated, options, force, completion);
-}
-
-%end
-
 %hook SBUIProudLockIconView
 
-// Same coaching-state remap used by the original LatchKey.
+// Same state remap used by the original LatchKey.
 - (void)setState:(long long)state animated:(BOOL)animated options:(long long)options completion:(id)completion {
     if (enabled && (state == 19 || state == 16)) {
         state = 1;
@@ -105,7 +74,14 @@ static void LKWCompleteStateRequest(id completion) {
 - (void)layoutSubviews {
     %orig;
 
-    if (!enabled || positionOption == 0) return;
+    if (!enabled) return;
+
+    // Original LatchKey always keeps the proud-lock view visible.
+    // In Default mode it does ONLY this, so Apple's original position is untouched.
+    if (positionOption == 0) {
+        self.hidden = NO;
+        return;
+    }
 
     UIView *lock = nil;
     UIView *coachingView = nil;
@@ -163,6 +139,7 @@ static void LKWCompleteStateRequest(id completion) {
             break;
 
         default:
+            self.hidden = NO;
             break;
     }
 }
@@ -171,6 +148,7 @@ static void LKWCompleteStateRequest(id completion) {
 
 %hook BSUICAPackageView
 
+// Same theme replacement method used by original LatchKey, adapted only for rootless pathing.
 - (instancetype)initWithPackageName:(NSString *)packageName inBundle:(NSBundle *)bundle {
     if (!enabled ||
         ![packageName isKindOfClass:[NSString class]] ||
