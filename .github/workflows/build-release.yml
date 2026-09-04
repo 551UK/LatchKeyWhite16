@@ -29,7 +29,7 @@ jobs:
           mkdir -p "$DEST"
           cp -R "$SRC" "$DEST/Face_ID_White.bundle"
 
-      - name: Verify clean LatchKey port
+      - name: Verify held Unlocked port
         run: |
           CAML="layout/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml"
           test -f "$CAML"
@@ -38,14 +38,18 @@ jobs:
           grep -q '<LKState name="Unlocked"' "$CAML"
           grep -q 'Face_ID_37.png' "$CAML"
 
-          # iOS 16's real proud-lock state setter includes updateText:.
-          grep -q 'updateText:(BOOL)updateText' Tweak.xm
+          # Use the iOS 16 transition selector from the runtime headers.
+          grep -q '_transitionToState:(long long)state' Tweak.xm
           grep -q 'state == 19 || state == 16' Tweak.xm
 
-          # v1.2.9 deliberately removes every previous ownership/freeze workaround.
+          # Keep the real Face_ID_White package on its Unlocked model state.
+          grep -q 'LKWShouldBlockPackageState' Tweak.xm
+          grep -q 'LKWHoldUnlockedKey' Tweak.xm
+          grep -q 'keeping Unlocked; blocked package state' Tweak.xm
+
+          # Do not bring back the old overlay/freeze implementations.
           ! grep -q 'LKWOwnedPackage' Tweak.xm
           ! grep -q 'LKWPausePackageLayer' Tweak.xm
-          ! grep -q 'objc_setAssociatedObject' Tweak.xm
           ! grep -q 'QuartzCore' Tweak.xm
 
       - name: Build rootless package
@@ -90,13 +94,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.2.9"
+          TAG="v1.3.0"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.2.9" \
-            --notes "Clean original-style iOS 16 port. Removes the overlay, snapshot, duplicate-package, alpha and Core Animation freeze workarounds. SpringBoard once again owns its real lock view exactly like original LatchKey. The original Face ID coaching-state remap is now hooked on iOS 16's actual setState:animated:updateText:options:completion: selector. Default positioning is unchanged." \
+            --title "LatchKey White 16 v1.3.0" \
+            --notes "Keeps the actual Face ID White CA package on its Unlocked state after the animation finishes. Any later package state is ignored until Locked is requested, so Face_ID_37 remains the model-state image. Also moves the 16/19 remap onto the iOS 16 _transitionToState:animated:options:completion: path. No overlay, snapshot, duplicate package or animation freeze." \
             --latest
