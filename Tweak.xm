@@ -1,16 +1,18 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
-#import <objc/runtime.h>
 
 @interface BSUICAPackageView : UIView
 - (instancetype)initWithPackageName:(NSString *)packageName inBundle:(NSBundle *)bundle;
-- (BOOL)setState:(id)state animated:(BOOL)animated transitionSpeed:(double)speed completion:(id)completion;
-- (BOOL)setState:(id)state onLayer:(id)layer animated:(BOOL)animated transitionSpeed:(double)speed completion:(id)completion;
 @end
 
 @interface SBUIProudLockIconView : UIView
+- (long long)state;
 - (void)setState:(long long)state animated:(BOOL)animated options:(long long)options completion:(id)completion;
+@end
+
+@interface SBUIProudLockContainerViewController : UIViewController
+- (long long)_actualIconState;
 @end
 
 static NSString * const LKWPrefsDomain = @"com.551.latchkeywhite16";
@@ -21,9 +23,6 @@ static NSInteger positionOption = 0;
 static CGFloat xPos = 176.0;
 static CGFloat yPos = 53.0;
 static CGFloat scale = 1.0;
-
-static char LKWThemedViewKey;
-static char LKWHoldUnlockedKey;
 
 static id LKWCopyPreference(NSString *key) {
     CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
@@ -67,50 +66,35 @@ static NSBundle *LKWFaceIDWhiteBundle(void) {
     return bundle;
 }
 
-static BOOL LKWStateIs(id state, NSString *name) {
-    return [state isKindOfClass:[NSString class]] &&
-           [(NSString *)state caseInsensitiveCompare:name] == NSOrderedSame;
+static void LKWCompleteStateRequest(id completion) {
+    if (!completion) return;
+    void (^block)(BOOL) = completion;
+    block(NO);
 }
 
-static BOOL LKWIsThemedView(id view) {
-    return [objc_getAssociatedObject(view, &LKWThemedViewKey) boolValue];
-}
+%hook SBUIProudLockContainerViewController
 
-static BOOL LKWHoldUnlocked(id view) {
-    return [objc_getAssociatedObject(view, &LKWHoldUnlockedKey) boolValue];
-}
-
-static void LKWSetHoldUnlocked(id view, BOOL hold) {
-    objc_setAssociatedObject(view, &LKWHoldUnlockedKey, @(hold), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-
-static BOOL LKWHandlePackageState(id view, id state, id completion) {
-    if (!enabled || !LKWIsThemedView(view)) return NO;
-
-    if (LKWStateIs(state, @"Unlocked")) {
-        LKWSetHoldUnlocked(view, YES);
-        return NO;
+// iOS 16 clears the proud-lock icon by moving from state 2 (Unlocked)
+// to state 0 (None) after Face ID succeeds. Original LatchKey leaves the
+// unlocked tick visible, so keep state 2 until the lock genuinely resets.
+- (void)_setIconState:(long long)state
+             animated:(BOOL)animated
+              options:(long long)options
+                force:(BOOL)force
+           completion:(id)completion {
+    if (enabled && [self _actualIconState] == 2 && state == 0) {
+        LKWCompleteStateRequest(completion);
+        return;
     }
 
-    if (LKWStateIs(state, @"Locked") || LKWStateIs(state, @"Error")) {
-        LKWSetHoldUnlocked(view, NO);
-        return NO;
-    }
-
-    if (LKWStateIs(state, @"Sleep") && LKWHoldUnlocked(view)) {
-        if (completion) {
-            void (^block)(BOOL) = completion;
-            block(YES);
-        }
-        return YES;
-    }
-
-    return NO;
+    %orig(state, animated, options, force, completion);
 }
+
+%end
 
 %hook SBUIProudLockIconView
 
-// Same state remap used by the original LatchKey.
+// Same coaching-state remap used by the original LatchKey.
 - (void)setState:(long long)state animated:(BOOL)animated options:(long long)options completion:(id)completion {
     if (enabled && (state == 19 || state == 16)) {
         state = 1;
@@ -121,10 +105,7 @@ static BOOL LKWHandlePackageState(id view, id state, id completion) {
 - (void)layoutSubviews {
     %orig;
 
-    if (!enabled) return;
-
-    // Default means exactly that: leave Apple's original frame/transform alone.
-    if (positionOption == 0) return;
+    if (!enabled || positionOption == 0) return;
 
     UIView *lock = nil;
     UIView *coachingView = nil;
@@ -200,23 +181,7 @@ static BOOL LKWHandlePackageState(id view, id state, id completion) {
     NSBundle *themeBundle = LKWFaceIDWhiteBundle();
     if (!themeBundle) return %orig;
 
-    id view = %orig(@"Face_ID_White", themeBundle);
-    if (view) {
-        objc_setAssociatedObject(view, &LKWThemedViewKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        LKWSetHoldUnlocked(view, NO);
-    }
-    return view;
-}
-
-// iOS 16 uses this selector for CA package state changes.
-- (BOOL)setState:(id)state animated:(BOOL)animated transitionSpeed:(double)speed completion:(id)completion {
-    if (LKWHandlePackageState(self, state, completion)) return YES;
-    return %orig(state, animated, speed, completion);
-}
-
-- (BOOL)setState:(id)state onLayer:(id)layer animated:(BOOL)animated transitionSpeed:(double)speed completion:(id)completion {
-    if (LKWHandlePackageState(self, state, completion)) return YES;
-    return %orig(state, layer, animated, speed, completion);
+    return %orig(@"Face_ID_White", themeBundle);
 }
 
 %end

@@ -64,13 +64,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.2.1"
+          TAG="v1.2.2"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.2.1" \
-            --notes "Leaves the default lock position completely untouched and fixes the iOS 16 CA package state path so the final Face ID White frame is not immediately replaced by Sleep after the unlock animation." \
+            --title "LatchKey White 16 v1.2.2" \
+            --notes "Fixes the disappearing unlocked tick on iOS 16 by keeping the proud-lock controller in its Unlocked state instead of allowing Apple's immediate Unlocked-to-None transition. Removes the earlier CA Sleep workaround and leaves Default positioning untouched." \
             --latest
