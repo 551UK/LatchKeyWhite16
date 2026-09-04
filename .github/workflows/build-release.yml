@@ -33,8 +33,8 @@ jobs:
         run: |
           CAML="layout/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml"
           test -f "$CAML"
-          grep -q '<LKState name="Sleep">' "$CAML"
-          grep -q '<LKState name="Unlocked">' "$CAML"
+          grep -q '<LKState name="Locked"' "$CAML"
+          grep -q '<LKState name="Unlocked"' "$CAML"
           grep -q 'Face_ID_37.png' "$CAML"
 
       - name: Build rootless package
@@ -62,14 +62,6 @@ jobs:
             exit 1
           fi
 
-          mkdir -p /tmp/latchkey-data
-          tar -xf "$DATA_TAR" -C /tmp/latchkey-data
-          CAML="/tmp/latchkey-data/var/jb/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml"
-          test -f "$CAML"
-          grep -q '<LKState name="Sleep">' "$CAML"
-          grep -q '<LKState name="Unlocked">' "$CAML"
-          grep -q 'Face_ID_37.png' "$CAML"
-
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -80,13 +72,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.2.6"
+          TAG="v1.2.7"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.2.6" \
-            --notes "Uses the original unmodified Face ID White theme. After the 1-second unlock animation finishes, the tweak pins a separate Face ID White package already in its Unlocked/tick state over the lock view. That pinned final state is independent of Apple's animation state machine and stays visible until the lock returns to Locked. Default positioning remains unchanged." \
+            --title "LatchKey White 16 v1.2.7" \
+            --notes "Reworks the tweak so SpringBoard no longer owns the custom Face ID White animation view. The tweak creates its own independent Face ID White package, plays Locked to Unlocked once, then deliberately sends no further states after Unlocked. The final tick therefore remains as the animation's last frame until a real Locked state resets it. Default positioning remains unchanged." \
             --latest

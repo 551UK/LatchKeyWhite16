@@ -1,6 +1,6 @@
 Package: com.551.latchkeywhite16
 Name: LatchKey White 16
-Version: 1.2.6
+Version: 1.2.7
 Architecture: iphoneos-arm64
 Description: Original LatchKey Face ID White animation for rootless iOS 16.
 Maintainer: 551

@@ -6,7 +6,6 @@
 @interface BSUICAPackageView : UIView
 - (instancetype)initWithPackageName:(NSString *)packageName inBundle:(NSBundle *)bundle;
 - (BOOL)setState:(id)state animated:(BOOL)animated transitionSpeed:(double)speed completion:(id)completion;
-- (BOOL)setState:(id)state onLayer:(id)layer animated:(BOOL)animated transitionSpeed:(double)speed completion:(id)completion;
 @end
 
 @interface SBUIProudLockIconView : UIView
@@ -22,9 +21,8 @@ static CGFloat xPos = 176.0;
 static CGFloat yPos = 53.0;
 static CGFloat scale = 1.0;
 
-static char LKWThemedPackageKey;
-static char LKWPinPendingKey;
-static char LKWPinnedOverlayKey;
+static char LKWOwnedPackageKey;
+static char LKWOwnedStateKey;
 
 static id LKWCopyPreference(NSString *key) {
     CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
@@ -67,133 +65,118 @@ static NSBundle *LKWFaceIDWhiteBundle(void) {
     return bundle;
 }
 
-static BOOL LKWIsThemedPackage(id view) {
-    return [objc_getAssociatedObject(view, &LKWThemedPackageKey) boolValue];
-}
-
-static void LKWSetPinPending(id package, BOOL pending) {
-    objc_setAssociatedObject(package, &LKWPinPendingKey, @(pending), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-
-static BOOL LKWPinPending(id package) {
-    return [objc_getAssociatedObject(package, &LKWPinPendingKey) boolValue];
-}
-
-static SBUIProudLockIconView *LKWFindProudLockAncestor(UIView *view) {
-    Class proudClass = NSClassFromString(@"SBUIProudLockIconView");
-    UIView *node = view;
-    while (node) {
-        if (proudClass && [node isKindOfClass:proudClass]) {
-            return (SBUIProudLockIconView *)node;
-        }
-        node = node.superview;
-    }
-    return nil;
-}
-
-static UIView *LKWLockView(SBUIProudLockIconView *view) {
+static UIView *LKWSystemLockView(SBUIProudLockIconView *root) {
     @try {
-        id lock = [view valueForKey:@"_lockView"];
+        id lock = [root valueForKey:@"_lockView"];
         return [lock isKindOfClass:[UIView class]] ? lock : nil;
     } @catch (__unused NSException *exception) {
         return nil;
     }
 }
 
-static void LKWRemovePinnedTick(SBUIProudLockIconView *root) {
-    if (!root) return;
-    UIView *overlay = objc_getAssociatedObject(root, &LKWPinnedOverlayKey);
-    if (overlay) {
-        [overlay removeFromSuperview];
-        objc_setAssociatedObject(root, &LKWPinnedOverlayKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
+static BSUICAPackageView *LKWOwnedPackage(SBUIProudLockIconView *root) {
+    id package = objc_getAssociatedObject(root, &LKWOwnedPackageKey);
+    return [package isKindOfClass:NSClassFromString(@"BSUICAPackageView")] ? package : nil;
 }
 
-static void LKWPositionPinnedTick(SBUIProudLockIconView *root, UIView *source) {
-    if (!root || !source || !source.superview) return;
-    UIView *overlay = objc_getAssociatedObject(root, &LKWPinnedOverlayKey);
-    if (!overlay) return;
+static void LKWSyncOwnedPackage(SBUIProudLockIconView *root) {
+    UIView *systemLock = LKWSystemLockView(root);
+    BSUICAPackageView *owned = LKWOwnedPackage(root);
+    if (!systemLock || !owned || !systemLock.superview) return;
 
-    CGRect frame = [root convertRect:source.bounds fromView:source];
-    overlay.transform = CGAffineTransformIdentity;
-    overlay.frame = frame;
-    overlay.hidden = NO;
-    overlay.alpha = 1.0;
-    overlay.userInteractionEnabled = NO;
-    [root bringSubviewToFront:overlay];
+    if (owned.superview != systemLock.superview) {
+        [owned removeFromSuperview];
+        [systemLock.superview addSubview:owned];
+    }
+
+    owned.transform = CGAffineTransformIdentity;
+    owned.bounds = systemLock.bounds;
+    owned.center = systemLock.center;
+    owned.transform = systemLock.transform;
+    owned.alpha = 1.0;
+    owned.hidden = (positionOption == 4);
+    owned.userInteractionEnabled = NO;
+
+    systemLock.hidden = YES;
+    [systemLock.superview bringSubviewToFront:owned];
 }
 
-static void LKWShowPinnedTickForPackage(BSUICAPackageView *source) {
-    if (!enabled || !source || !LKWIsThemedPackage(source) || !LKWPinPending(source)) return;
-
-    SBUIProudLockIconView *root = LKWFindProudLockAncestor(source);
-    if (!root) return;
-
-    UIView *existing = objc_getAssociatedObject(root, &LKWPinnedOverlayKey);
-    if (existing) {
-        LKWPositionPinnedTick(root, source);
-        return;
+static BSUICAPackageView *LKWEnsureOwnedPackage(SBUIProudLockIconView *root) {
+    BSUICAPackageView *owned = LKWOwnedPackage(root);
+    UIView *systemLock = LKWSystemLockView(root);
+    if (owned) {
+        LKWSyncOwnedPackage(root);
+        return owned;
     }
+
+    if (!root || !systemLock || !systemLock.superview) return nil;
 
     Class packageClass = NSClassFromString(@"BSUICAPackageView");
     NSBundle *themeBundle = LKWFaceIDWhiteBundle();
-    if (!packageClass || !themeBundle) return;
+    if (!packageClass || !themeBundle) return nil;
 
-    BSUICAPackageView *overlay = [[packageClass alloc] initWithPackageName:@"Face_ID_White" inBundle:themeBundle];
-    if (!overlay) return;
+    owned = [(BSUICAPackageView *)[packageClass alloc] initWithPackageName:@"Face_ID_White"
+                                                                  inBundle:themeBundle];
+    if (!owned) return nil;
 
-    overlay.backgroundColor = UIColor.clearColor;
-    overlay.userInteractionEnabled = NO;
-    overlay.clipsToBounds = NO;
-    [overlay setState:@"Unlocked" animated:NO transitionSpeed:1.0 completion:nil];
+    owned.backgroundColor = UIColor.clearColor;
+    owned.userInteractionEnabled = NO;
+    owned.clipsToBounds = NO;
+    [owned setState:@"Locked" animated:NO transitionSpeed:1.0 completion:nil];
 
-    [root addSubview:overlay];
-    objc_setAssociatedObject(root, &LKWPinnedOverlayKey, overlay, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    LKWPositionPinnedTick(root, source);
+    objc_setAssociatedObject(root, &LKWOwnedPackageKey, owned, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(root, &LKWOwnedStateKey, @1, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+    [systemLock.superview addSubview:owned];
+    LKWSyncOwnedPackage(root);
+    return owned;
 }
 
-static BOOL LKWStateIs(id state, NSString *name) {
-    return [state isKindOfClass:[NSString class]] &&
-           [(NSString *)state caseInsensitiveCompare:name] == NSOrderedSame;
-}
+static void LKWDriveOwnedPackage(SBUIProudLockIconView *root, long long requestedState) {
+    BSUICAPackageView *owned = LKWEnsureOwnedPackage(root);
+    if (!owned) return;
 
-static void LKWHandlePackageState(BSUICAPackageView *package, id state, BOOL animated, double speed) {
-    if (!enabled || !LKWIsThemedPackage(package)) return;
+    NSInteger current = [objc_getAssociatedObject(root, &LKWOwnedStateKey) integerValue];
 
-    if (LKWStateIs(state, @"Unlocked")) {
-        LKWSetPinPending(package, YES);
-
-        // The original Face ID White Unlocked transition is exactly 1 second.
-        // Once it finishes, pin a separate already-Unlocked package over it.
-        double safeSpeed = speed > 0.01 ? speed : 1.0;
-        double delay = animated ? (1.02 / safeSpeed) : 0.0;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
-                       dispatch_get_main_queue(), ^{
-            LKWShowPinnedTickForPackage(package);
-        });
+    if (requestedState == 2) {
+        if (current != 2) {
+            // Play the original unlock animation once, then leave the package
+            // in Unlocked forever. No later Apple state is forwarded to it.
+            [owned setState:@"Unlocked" animated:YES transitionSpeed:1.0 completion:nil];
+            objc_setAssociatedObject(root, &LKWOwnedStateKey, @2, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
         return;
     }
 
-    if (LKWStateIs(state, @"Locked") || LKWStateIs(state, @"Error")) {
-        LKWSetPinPending(package, NO);
-        LKWRemovePinnedTick(LKWFindProudLockAncestor(package));
+    if (requestedState == 1) {
+        if (current != 1) {
+            [owned setState:@"Locked" animated:NO transitionSpeed:1.0 completion:nil];
+            objc_setAssociatedObject(root, &LKWOwnedStateKey, @1, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+        return;
     }
+
+    // Deliberately ignore None, coaching, matched, reticle, spinner and other
+    // transient iOS 16 states. Once Unlocked finishes, the last frame stays.
 }
 
 %hook SBUIProudLockIconView
 
 - (void)setState:(long long)state animated:(BOOL)animated options:(long long)options completion:(id)completion {
-    // Same coaching-state remap as original LatchKey.
+    long long requestedState = state;
+
+    // Keep the original LatchKey coaching-state remap for SpringBoard itself.
     if (enabled && (state == 19 || state == 16)) {
         state = 1;
     }
 
-    // A real Locked state starts a fresh cycle, so remove the pinned tick.
-    if (enabled && state == 1) {
-        LKWRemovePinnedTick(self);
-    }
-
     %orig(state, animated, options, completion);
+
+    if (enabled) {
+        // Drive our independent animation with the ORIGINAL request. Only
+        // Locked (1) and Unlocked (2) are accepted by LKWDriveOwnedPackage.
+        LKWDriveOwnedPackage(self, requestedState);
+    }
 }
 
 - (void)setAlpha:(CGFloat)alpha {
@@ -215,13 +198,20 @@ static void LKWHandlePackageState(BSUICAPackageView *package, id state, BOOL ani
 - (void)layoutSubviews {
     %orig;
 
-    if (!enabled) return;
+    UIView *lock = LKWSystemLockView(self);
 
-    UIView *lock = LKWLockView(self);
+    if (!enabled) {
+        if (lock) lock.hidden = NO;
+        BSUICAPackageView *owned = LKWOwnedPackage(self);
+        if (owned) owned.hidden = YES;
+        return;
+    }
+
+    LKWEnsureOwnedPackage(self);
 
     if (positionOption == 0) {
         self.hidden = NO;
-        if (lock) LKWPositionPinnedTick(self, lock);
+        LKWSyncOwnedPackage(self);
         return;
     }
 
@@ -233,7 +223,7 @@ static void LKWHandlePackageState(BSUICAPackageView *package, id state, BOOL ani
     }
 
     if (![lock isKindOfClass:[UIView class]] || ![coachingView isKindOfClass:[UIView class]]) {
-        if (lock) LKWPositionPinnedTick(self, lock);
+        LKWSyncOwnedPackage(self);
         return;
     }
 
@@ -267,7 +257,6 @@ static void LKWHandlePackageState(BSUICAPackageView *package, id state, BOOL ani
 
         case 4:
             self.hidden = YES;
-            LKWRemovePinnedTick(self);
             break;
 
         case 5:
@@ -284,41 +273,7 @@ static void LKWHandlePackageState(BSUICAPackageView *package, id state, BOOL ani
             break;
     }
 
-    if (positionOption != 4) {
-        LKWPositionPinnedTick(self, lock);
-    }
-}
-
-%end
-
-%hook BSUICAPackageView
-
-- (instancetype)initWithPackageName:(NSString *)packageName inBundle:(NSBundle *)bundle {
-    if (!enabled ||
-        ![packageName isKindOfClass:[NSString class]] ||
-        [packageName rangeOfString:@"lock" options:NSCaseInsensitiveSearch].location == NSNotFound) {
-        return %orig;
-    }
-
-    NSBundle *themeBundle = LKWFaceIDWhiteBundle();
-    if (!themeBundle) return %orig;
-
-    id view = %orig(@"Face_ID_White", themeBundle);
-    if (view) {
-        objc_setAssociatedObject(view, &LKWThemedPackageKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        LKWSetPinPending(view, NO);
-    }
-    return view;
-}
-
-- (BOOL)setState:(id)state animated:(BOOL)animated transitionSpeed:(double)speed completion:(id)completion {
-    LKWHandlePackageState(self, state, animated, speed);
-    return %orig(state, animated, speed, completion);
-}
-
-- (BOOL)setState:(id)state onLayer:(id)layer animated:(BOOL)animated transitionSpeed:(double)speed completion:(id)completion {
-    LKWHandlePackageState(self, state, animated, speed);
-    return %orig(state, layer, animated, speed, completion);
+    LKWSyncOwnedPackage(self);
 }
 
 %end
