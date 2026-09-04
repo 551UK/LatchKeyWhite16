@@ -10,6 +10,8 @@
 
 @interface SBUIProudLockIconView : UIView
 - (NSArray *)_activeViewsForState:(long long)state;
+- (void)setState:(long long)state animated:(BOOL)animated updateText:(BOOL)updateText options:(long long)options completion:(id)completion;
+- (void)_transitionToState:(long long)state animated:(BOOL)animated updateText:(BOOL)updateText options:(long long)options completion:(id)completion;
 @end
 
 static NSString * const LKWPrefsDomain = @"com.551.latchkeywhite16";
@@ -60,6 +62,13 @@ static NSBundle *LKWWhiteThemeBundle(void) {
 static BOOL LKWStateEquals(NSString *state, NSString *wanted) {
     return [state isKindOfClass:[NSString class]] &&
            [state caseInsensitiveCompare:wanted] == NSOrderedSame;
+}
+
+static long long LKWRemapProudLockState(long long state) {
+    // Original LatchKey behavior: states 16/19 are Face ID coaching/post-auth states.
+    // Keeping them at state 1 prevents SpringBoard from replacing/hiding the proud lock.
+    if (lkwEnabled && (state == 16 || state == 19)) return 1;
+    return state;
 }
 
 static BOOL LKWIsThemedPackage(BSUICAPackageView *view) {
@@ -237,8 +246,38 @@ static void LKWPrefsChangedCallback(CFNotificationCenterRef center,
     return view;
 }
 
+- (void)setHidden:(BOOL)hidden {
+    if (lkwEnabled) {
+        %orig(NO);
+        return;
+    }
+    %orig;
+}
+
+- (void)setAlpha:(CGFloat)alpha {
+    if (lkwEnabled) {
+        %orig(1.0);
+        self.layer.opacity = 1.0f;
+        return;
+    }
+    %orig;
+}
+
+- (void)setState:(long long)state animated:(BOOL)animated updateText:(BOOL)updateText options:(long long)options completion:(id)completion {
+    state = LKWRemapProudLockState(state);
+    %orig(state, animated, updateText, options, completion);
+    LKWForceVisible(self);
+}
+
+- (void)_transitionToState:(long long)state animated:(BOOL)animated updateText:(BOOL)updateText options:(long long)options completion:(id)completion {
+    state = LKWRemapProudLockState(state);
+    %orig(state, animated, updateText, options, completion);
+    LKWForceVisible(self);
+}
+
 - (NSArray *)_activeViewsForState:(long long)state {
-    NSArray *original = %orig;
+    state = LKWRemapProudLockState(state);
+    NSArray *original = %orig(state);
     if (!lkwEnabled) return original;
 
     BSUICAPackageView *lockView = LKWLockContentForView(self);
