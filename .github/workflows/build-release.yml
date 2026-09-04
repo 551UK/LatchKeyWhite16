@@ -22,9 +22,10 @@ jobs:
 
       - name: Add original Face ID White theme
         run: |
+          rm -rf /tmp/LatchKey
           git clone --depth=1 https://github.com/MDausch/LatchKey.git /tmp/LatchKey
           SRC="/tmp/LatchKey/Layout/Library/Application Support/LatchKey/Themes/ios12/Face_ID_White.bundle"
-          DEST="layout/var/jb/Library/Application Support/LatchKeyWhite16"
+          DEST="layout/Library/Application Support/LatchKeyWhite16"
           mkdir -p "$DEST"
           cp -R "$SRC" "$DEST/Face_ID_White.bundle"
 
@@ -37,14 +38,21 @@ jobs:
         run: |
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           test -n "$DEB"
+          rm -rf /tmp/latchkey-deb
           mkdir -p /tmp/latchkey-deb
           cd /tmp/latchkey-deb
           ar -x "$GITHUB_WORKSPACE/$DEB"
           DATA_TAR="$(find . -maxdepth 1 -name 'data.tar*' -type f | head -n 1)"
           test -n "$DATA_TAR"
           tar -tf "$DATA_TAR" | tee /tmp/package-files.txt
-          grep -q "LatchKeyWhite16.dylib" /tmp/package-files.txt
+          grep -q "var/jb/Library/MobileSubstrate/DynamicLibraries/LatchKeyWhite16.dylib" /tmp/package-files.txt
           grep -q "var/jb/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml" /tmp/package-files.txt
+          grep -q "var/jb/Library/PreferenceBundles/LatchKeyWhite16Prefs.bundle/LatchKeyWhite16Prefs" /tmp/package-files.txt
+          grep -q "var/jb/Library/PreferenceLoader/Preferences/LatchKeyWhite16.plist" /tmp/package-files.txt
+          if grep -q "var/jb/var/jb/" /tmp/package-files.txt; then
+            echo "Invalid double rootless prefix found"
+            exit 1
+          fi
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -56,13 +64,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.0.0"
+          TAG="v1.1.0"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.0.0" \
-            --notes "Rootless iOS 16 build using the original LatchKey Face ID White animation." \
+            --title "LatchKey White 16 v1.1.0" \
+            --notes "Fixes the rootless animation path so Face ID White actually loads. Adds Settings controls for Enable, X/Y position, scale, reset and respring." \
             --latest

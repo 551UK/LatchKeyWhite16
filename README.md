@@ -1,7 +1,5 @@
 # LatchKey White 16
 
-Face ID White LatchKey animation for rootless iOS 16.
+Rootless iOS 16 port of LatchKey's Face ID White lock animation with custom X/Y positioning and scale controls.
 
-Built for Dopamine/rootless jailbreaks.
-
-Uses the original Face_ID_White theme from LatchKey by Maxwell Dausch.
+Uses the original LatchKey Face ID White theme by Maxwell Dausch (MIT).
