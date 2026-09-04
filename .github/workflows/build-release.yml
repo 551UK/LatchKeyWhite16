@@ -29,16 +29,24 @@ jobs:
           mkdir -p "$DEST"
           cp -R "$SRC" "$DEST/Face_ID_White.bundle"
 
-      - name: Verify original theme
+      - name: Verify clean LatchKey port
         run: |
           CAML="layout/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml"
           test -f "$CAML"
+          grep -q '<LKState name="Sleep">' "$CAML"
           grep -q '<LKState name="Locked"' "$CAML"
           grep -q '<LKState name="Unlocked"' "$CAML"
           grep -q 'Face_ID_37.png' "$CAML"
-          grep -q '<real value="0.6"/>' "$CAML"
-          grep -q 'LKWPausePackageLayer' Tweak.xm
-          grep -q '0.75 \* NSEC_PER_SEC' Tweak.xm
+
+          # iOS 16's real proud-lock state setter includes updateText:.
+          grep -q 'updateText:(BOOL)updateText' Tweak.xm
+          grep -q 'state == 19 || state == 16' Tweak.xm
+
+          # v1.2.9 deliberately removes every previous ownership/freeze workaround.
+          ! grep -q 'LKWOwnedPackage' Tweak.xm
+          ! grep -q 'LKWPausePackageLayer' Tweak.xm
+          ! grep -q 'objc_setAssociatedObject' Tweak.xm
+          ! grep -q 'QuartzCore' Tweak.xm
 
       - name: Build rootless package
         run: |
@@ -65,6 +73,13 @@ jobs:
             exit 1
           fi
 
+          mkdir -p /tmp/latchkey-data
+          tar -xf "$DATA_TAR" -C /tmp/latchkey-data
+          CAML="/tmp/latchkey-data/var/jb/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml"
+          test -f "$CAML"
+          grep -q '<LKState name="Unlocked">' "$CAML"
+          grep -q 'Face_ID_37.png' "$CAML"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -75,13 +90,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.2.8"
+          TAG="v1.2.9"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.2.8" \
-            --notes "Pauses the owned Face ID White Core Animation package at 0.75 seconds, after Face_ID_37 is already displayed but before the 1-second transition can resolve into the blurred post-animation state. The final tick remains literally frozen on screen until the device returns to Locked." \
+            --title "LatchKey White 16 v1.2.9" \
+            --notes "Clean original-style iOS 16 port. Removes the overlay, snapshot, duplicate-package, alpha and Core Animation freeze workarounds. SpringBoard once again owns its real lock view exactly like original LatchKey. The original Face ID coaching-state remap is now hooked on iOS 16's actual setState:animated:updateText:options:completion: selector. Default positioning is unchanged." \
             --latest
