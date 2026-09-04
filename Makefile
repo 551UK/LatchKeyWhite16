@@ -8,7 +8,7 @@ include $(THEOS)/makefiles/common.mk
 TWEAK_NAME = LatchKeyWhite16
 LatchKeyWhite16_FILES = Tweak.xm
 LatchKeyWhite16_CFLAGS = -fobjc-arc
-LatchKeyWhite16_FRAMEWORKS = UIKit Foundation CoreFoundation
+LatchKeyWhite16_FRAMEWORKS = UIKit Foundation CoreFoundation QuartzCore
 
 SUBPROJECTS += LatchKeyWhite16Prefs
 

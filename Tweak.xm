@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
+#import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 
 @interface BSUICAPackageView : UIView
@@ -23,6 +24,7 @@ static CGFloat scale = 1.0;
 
 static char LKWOwnedPackageKey;
 static char LKWOwnedStateKey;
+static char LKWFreezeGenerationKey;
 
 static id LKWCopyPreference(NSString *key) {
     CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
@@ -76,7 +78,35 @@ static UIView *LKWSystemLockView(SBUIProudLockIconView *root) {
 
 static BSUICAPackageView *LKWOwnedPackage(SBUIProudLockIconView *root) {
     id package = objc_getAssociatedObject(root, &LKWOwnedPackageKey);
-    return [package isKindOfClass:NSClassFromString(@"BSUICAPackageView")] ? package : nil;
+    Class packageClass = NSClassFromString(@"BSUICAPackageView");
+    return (packageClass && [package isKindOfClass:packageClass]) ? package : nil;
+}
+
+static NSUInteger LKWAdvanceFreezeGeneration(SBUIProudLockIconView *root) {
+    NSUInteger generation = [objc_getAssociatedObject(root, &LKWFreezeGenerationKey) unsignedIntegerValue] + 1;
+    objc_setAssociatedObject(root, &LKWFreezeGenerationKey, @(generation), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    return generation;
+}
+
+static void LKWResumePackageLayer(BSUICAPackageView *package) {
+    if (!package) return;
+    CALayer *layer = package.layer;
+    layer.speed = 1.0;
+    layer.timeOffset = 0.0;
+    layer.beginTime = 0.0;
+}
+
+static void LKWPausePackageLayer(BSUICAPackageView *package) {
+    if (!package) return;
+    CALayer *layer = package.layer;
+    if (layer.speed == 0.0) return;
+
+    // Freeze the complete CA package presentation tree at exactly the frame
+    // currently being displayed. Because speed is set on the root layer, all
+    // of the package's sublayer animations pause with it.
+    CFTimeInterval pausedTime = [layer convertTime:CACurrentMediaTime() fromLayer:nil];
+    layer.speed = 0.0;
+    layer.timeOffset = pausedTime;
 }
 
 static void LKWSyncOwnedPackage(SBUIProudLockIconView *root) {
@@ -122,10 +152,12 @@ static BSUICAPackageView *LKWEnsureOwnedPackage(SBUIProudLockIconView *root) {
     owned.backgroundColor = UIColor.clearColor;
     owned.userInteractionEnabled = NO;
     owned.clipsToBounds = NO;
+    LKWResumePackageLayer(owned);
     [owned setState:@"Locked" animated:NO transitionSpeed:1.0 completion:nil];
 
     objc_setAssociatedObject(root, &LKWOwnedPackageKey, owned, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(root, &LKWOwnedStateKey, @1, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(root, &LKWFreezeGenerationKey, @0, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 
     [systemLock.superview addSubview:owned];
     LKWSyncOwnedPackage(root);
@@ -140,24 +172,43 @@ static void LKWDriveOwnedPackage(SBUIProudLockIconView *root, long long requeste
 
     if (requestedState == 2) {
         if (current != 2) {
-            // Play the original unlock animation once, then leave the package
-            // in Unlocked forever. No later Apple state is forwarded to it.
+            NSUInteger generation = LKWAdvanceFreezeGeneration(root);
+            LKWResumePackageLayer(owned);
+
+            // Play the real original Face ID White CA animation.
             [owned setState:@"Unlocked" animated:YES transitionSpeed:1.0 completion:nil];
             objc_setAssociatedObject(root, &LKWOwnedStateKey, @2, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+
+            // In the original CAML, Face_ID_37 (the final tick) becomes the
+            // active keyframe at 0.60s. Pause at 0.75s: the tick is already
+            // fully visible, but the transition has not yet completed and
+            // therefore cannot resolve into the blurred post-animation state.
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.75 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                if (!enabled) return;
+                if (LKWOwnedPackage(root) != owned) return;
+                if ([objc_getAssociatedObject(root, &LKWFreezeGenerationKey) unsignedIntegerValue] != generation) return;
+                if ([objc_getAssociatedObject(root, &LKWOwnedStateKey) integerValue] != 2) return;
+                LKWPausePackageLayer(owned);
+            });
         }
         return;
     }
 
     if (requestedState == 1) {
+        // Invalidate any pending freeze and return the package to a normal
+        // running layer before resetting it for the next lock cycle.
+        LKWAdvanceFreezeGeneration(root);
         if (current != 1) {
+            LKWResumePackageLayer(owned);
             [owned setState:@"Locked" animated:NO transitionSpeed:1.0 completion:nil];
             objc_setAssociatedObject(root, &LKWOwnedStateKey, @1, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
         return;
     }
 
-    // Deliberately ignore None, coaching, matched, reticle, spinner and other
-    // transient iOS 16 states. Once Unlocked finishes, the last frame stays.
+    // None/coaching/matched/reticle/spinner/etc. never reach our package.
+    // After the unlock animation is frozen, nothing can advance it further.
 }
 
 %hook SBUIProudLockIconView
@@ -165,7 +216,7 @@ static void LKWDriveOwnedPackage(SBUIProudLockIconView *root, long long requeste
 - (void)setState:(long long)state animated:(BOOL)animated options:(long long)options completion:(id)completion {
     long long requestedState = state;
 
-    // Keep the original LatchKey coaching-state remap for SpringBoard itself.
+    // Same coaching-state remap used by original LatchKey.
     if (enabled && (state == 19 || state == 16)) {
         state = 1;
     }
@@ -173,8 +224,6 @@ static void LKWDriveOwnedPackage(SBUIProudLockIconView *root, long long requeste
     %orig(state, animated, options, completion);
 
     if (enabled) {
-        // Drive our independent animation with the ORIGINAL request. Only
-        // Locked (1) and Unlocked (2) are accepted by LKWDriveOwnedPackage.
         LKWDriveOwnedPackage(self, requestedState);
     }
 }
@@ -203,7 +252,10 @@ static void LKWDriveOwnedPackage(SBUIProudLockIconView *root, long long requeste
     if (!enabled) {
         if (lock) lock.hidden = NO;
         BSUICAPackageView *owned = LKWOwnedPackage(self);
-        if (owned) owned.hidden = YES;
+        if (owned) {
+            LKWResumePackageLayer(owned);
+            owned.hidden = YES;
+        }
         return;
     }
 

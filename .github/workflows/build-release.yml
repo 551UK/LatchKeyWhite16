@@ -36,6 +36,9 @@ jobs:
           grep -q '<LKState name="Locked"' "$CAML"
           grep -q '<LKState name="Unlocked"' "$CAML"
           grep -q 'Face_ID_37.png' "$CAML"
+          grep -q '<real value="0.6"/>' "$CAML"
+          grep -q 'LKWPausePackageLayer' Tweak.xm
+          grep -q '0.75 \* NSEC_PER_SEC' Tweak.xm
 
       - name: Build rootless package
         run: |
@@ -72,13 +75,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.2.7"
+          TAG="v1.2.8"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.2.7" \
-            --notes "Reworks the tweak so SpringBoard no longer owns the custom Face ID White animation view. The tweak creates its own independent Face ID White package, plays Locked to Unlocked once, then deliberately sends no further states after Unlocked. The final tick therefore remains as the animation's last frame until a real Locked state resets it. Default positioning remains unchanged." \
+            --title "LatchKey White 16 v1.2.8" \
+            --notes "Pauses the owned Face ID White Core Animation package at 0.75 seconds, after Face_ID_37 is already displayed but before the 1-second transition can resolve into the blurred post-animation state. The final tick remains literally frozen on screen until the device returns to Locked." \
             --latest
