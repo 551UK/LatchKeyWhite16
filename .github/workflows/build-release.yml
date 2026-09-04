@@ -29,34 +29,11 @@ jobs:
           mkdir -p "$DEST"
           cp -R "$SRC" "$DEST/Face_ID_White.bundle"
 
-      - name: Remove legacy Sleep state
+      - name: Verify original theme
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          p = Path("layout/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml")
-          s = p.read_text()
-          original = s
-
-          patterns = [
-              r'\s*<LKState name="Sleep">.*?</LKState>\s*',
-              r'\s*<LKStateTransition fromState="\*" toState="Sleep">.*?</LKStateTransition>\s*',
-              r'\s*<LKStateTransition fromState="Sleep" toState="\*">.*?</LKStateTransition>\s*',
-          ]
-          for pattern in patterns:
-              s = re.sub(pattern, "\n", s, flags=re.S)
-
-          if s == original:
-              raise SystemExit("Sleep state patch made no changes")
-
-          p.write_text(s)
-          PY
-
           CAML="layout/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml"
-          ! grep -q '<LKState name="Sleep">' "$CAML"
-          ! grep -q 'toState="Sleep"' "$CAML"
-          ! grep -q 'fromState="Sleep"' "$CAML"
+          test -f "$CAML"
+          grep -q '<LKState name="Sleep">' "$CAML"
           grep -q '<LKState name="Unlocked">' "$CAML"
           grep -q 'Face_ID_37.png' "$CAML"
 
@@ -89,9 +66,7 @@ jobs:
           tar -xf "$DATA_TAR" -C /tmp/latchkey-data
           CAML="/tmp/latchkey-data/var/jb/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml"
           test -f "$CAML"
-          ! grep -q '<LKState name="Sleep">' "$CAML"
-          ! grep -q 'toState="Sleep"' "$CAML"
-          ! grep -q 'fromState="Sleep"' "$CAML"
+          grep -q '<LKState name="Sleep">' "$CAML"
           grep -q '<LKState name="Unlocked">' "$CAML"
           grep -q 'Face_ID_37.png' "$CAML"
 
@@ -105,13 +80,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.2.5"
+          TAG="v1.2.6"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.2.5" \
-            --notes "Keeps the Face ID White package in iOS 16's active lock-glyph set and prevents SpringBoard from fading or hiding that themed package after the tick animation. This follows the visibility approach used by other lock-glyph tweaks and keeps Default positioning unchanged." \
+            --title "LatchKey White 16 v1.2.6" \
+            --notes "Uses the original unmodified Face ID White theme. After the 1-second unlock animation finishes, the tweak pins a separate Face ID White package already in its Unlocked/tick state over the lock view. That pinned final state is independent of Apple's animation state machine and stays visible until the lock returns to Locked. Default positioning remains unchanged." \
             --latest
