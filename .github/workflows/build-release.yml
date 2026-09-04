@@ -64,13 +64,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.1.1"
+          TAG="v1.1.2"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.1.1" \
-            --notes "Keeps the Face ID White glyph visible on its final unlocked frame after the unlock animation instead of letting iOS 16 immediately fade it into the transparent Sleep state." \
+            --title "LatchKey White 16 v1.1.2" \
+            --notes "Keeps the themed Face ID lock view active and visible after the unlock animation by preventing iOS 16 from fading or hiding the custom lock package." \
             --latest

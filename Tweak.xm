@@ -9,6 +9,7 @@
 @end
 
 @interface SBUIProudLockIconView : UIView
+- (NSArray *)_activeViewsForState:(long long)state;
 @end
 
 static NSString * const LKWPrefsDomain = @"com.551.latchkeywhite16";
@@ -86,13 +87,36 @@ static UIView *LKWIconContainerForView(SBUIProudLockIconView *view) {
     }
 }
 
-static UIView *LKWLockContentForView(SBUIProudLockIconView *view) {
+static BSUICAPackageView *LKWLockContentForView(SBUIProudLockIconView *view) {
     if (!view) return nil;
     @try {
         id lockView = [view valueForKey:@"_lockView"];
-        return [lockView isKindOfClass:[UIView class]] ? lockView : nil;
+        return [lockView isKindOfClass:[BSUICAPackageView class]] ? lockView : nil;
     } @catch (__unused NSException *exception) {
         return nil;
+    }
+}
+
+static void LKWForceVisible(SBUIProudLockIconView *view) {
+    if (!lkwEnabled || !view) return;
+
+    UIView *container = LKWIconContainerForView(view);
+    BSUICAPackageView *lockView = LKWLockContentForView(view);
+
+    view.hidden = NO;
+    view.alpha = 1.0;
+    view.layer.opacity = 1.0f;
+
+    if (container) {
+        container.hidden = NO;
+        container.alpha = 1.0;
+        container.layer.opacity = 1.0f;
+    }
+
+    if (lockView && LKWIsThemedPackage(lockView)) {
+        lockView.hidden = NO;
+        lockView.alpha = 1.0;
+        lockView.layer.opacity = 1.0f;
     }
 }
 
@@ -105,16 +129,7 @@ static void LKWApplyPosition(SBUIProudLockIconView *view) {
         return;
     }
 
-    view.hidden = NO;
-    view.alpha = 1.0;
-    container.hidden = NO;
-    container.alpha = 1.0;
-
-    UIView *lockView = LKWLockContentForView(view);
-    if (lockView) {
-        lockView.hidden = NO;
-        lockView.alpha = 1.0;
-    }
+    LKWForceVisible(view);
 
     CGPoint center = container.center;
     center.x += lkwXOffset;
@@ -128,6 +143,7 @@ static void LKWRefreshVisibleLocks(void) {
         for (SBUIProudLockIconView *view in lkwLockViews.allObjects) {
             [view setNeedsLayout];
             [view layoutIfNeeded];
+            LKWForceVisible(view);
         }
     });
 }
@@ -156,12 +172,32 @@ static void LKWPrefsChangedCallback(CFNotificationCenterRef center,
                                          @YES,
                                          OBJC_ASSOCIATION_RETAIN_NONATOMIC);
                 LKWSetHoldingUnlocked(view, NO);
+                view.hidden = NO;
+                view.alpha = 1.0;
+                view.layer.opacity = 1.0f;
             }
             return view;
         }
     }
 
     return %orig;
+}
+
+- (void)setHidden:(BOOL)hidden {
+    if (lkwEnabled && LKWIsThemedPackage(self)) {
+        %orig(NO);
+        return;
+    }
+    %orig;
+}
+
+- (void)setAlpha:(CGFloat)alpha {
+    if (lkwEnabled && LKWIsThemedPackage(self)) {
+        %orig(1.0);
+        self.layer.opacity = 1.0f;
+        return;
+    }
+    %orig;
 }
 
 - (BOOL)setState:(NSString *)state onLayer:(id)layer animated:(BOOL)animated transitionSpeed:(double)speed completion:(void (^)(BOOL finished))completion {
@@ -174,11 +210,18 @@ static void LKWPrefsChangedCallback(CFNotificationCenterRef center,
     } else if (LKWStateEquals(state, @"Locked") || LKWStateEquals(state, @"Error")) {
         LKWSetHoldingUnlocked(self, NO);
     } else if (LKWStateEquals(state, @"Sleep") && LKWHoldingUnlocked(self)) {
+        self.hidden = NO;
+        self.alpha = 1.0;
+        self.layer.opacity = 1.0f;
         if (completion) completion(YES);
         return YES;
     }
 
-    return %orig;
+    BOOL result = %orig;
+    self.hidden = NO;
+    self.alpha = 1.0;
+    self.layer.opacity = 1.0f;
+    return result;
 }
 
 %end
@@ -192,6 +235,20 @@ static void LKWPrefsChangedCallback(CFNotificationCenterRef center,
         [lkwLockViews addObject:view];
     }
     return view;
+}
+
+- (NSArray *)_activeViewsForState:(long long)state {
+    NSArray *original = %orig;
+    if (!lkwEnabled) return original;
+
+    BSUICAPackageView *lockView = LKWLockContentForView(self);
+    if (!lockView || !LKWIsThemedPackage(lockView)) return original;
+
+    NSMutableArray *views = original ? [original mutableCopy] : [NSMutableArray array];
+    if (![views containsObject:lockView]) {
+        [views addObject:lockView];
+    }
+    return views;
 }
 
 - (void)layoutSubviews {
