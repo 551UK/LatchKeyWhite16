@@ -1,0 +1,63 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Theos
+        uses: waruhachi/theos-action@v2.4.6
+
+      - name: Add original Face ID White theme
+        run: |
+          git clone --depth=1 https://github.com/MDausch/LatchKey.git /tmp/LatchKey
+          SRC="/tmp/LatchKey/Layout/Library/Application Support/LatchKey/Themes/ios12/Face_ID_White.bundle"
+          DEST="layout/var/jb/Library/Application Support/LatchKeyWhite16"
+          mkdir -p "$DEST"
+          cp -R "$SRC" "$DEST/Face_ID_White.bundle"
+
+      - name: Build rootless package
+        run: |
+          make clean package FINALPACKAGE=1
+          ls -lh packages
+
+      - name: Verify package contents
+        run: |
+          DEB="$(find packages -name '*.deb' -type f | head -n 1)"
+          test -n "$DEB"
+          dpkg-deb -c "$DEB" | tee /tmp/package-files.txt
+          grep -q "LatchKeyWhite16.dylib" /tmp/package-files.txt
+          grep -q "Face_ID_White.bundle/Face_ID_White.ca/main.caml" /tmp/package-files.txt
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LatchKeyWhite16-deb
+          path: packages/*.deb
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v1.0.0"
+          DEB="$(find packages -name '*.deb' -type f | head -n 1)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
+          gh release create "$TAG" "$DEB" \
+            --title "LatchKey White 16 v1.0.0" \
+            --notes "Rootless iOS 16 build using the original LatchKey Face ID White animation." \
+            --latest
