@@ -1,9 +1,6 @@
 name: Build and Release
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -64,13 +61,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.2.2"
+          TAG="v1.2.3"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.2.2" \
-            --notes "Fixes the disappearing unlocked tick on iOS 16 by keeping the proud-lock controller in its Unlocked state instead of allowing Apple's immediate Unlocked-to-None transition. Removes the earlier CA Sleep workaround and leaves Default positioning untouched." \
+            --title "LatchKey White 16 v1.2.3" \
+            --notes "Keeps the unlocked Face ID tick visible until the phone locks again or the screen turns off. Blocks every hide, fade, removal and None-state request on the themed proud-lock view after the unlock animation completes." \
             --latest
