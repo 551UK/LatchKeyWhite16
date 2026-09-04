@@ -64,13 +64,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.2.0"
+          TAG="v1.2.1"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.2.0" \
-            --notes "Clean rootless iOS 16 port of original LatchKey Face ID White. Uses the original LatchKey state remap and positioning logic without the experimental visibility hooks from earlier test builds." \
+            --title "LatchKey White 16 v1.2.1" \
+            --notes "Leaves the default lock position completely untouched and fixes the iOS 16 CA package state path so the final Face ID White frame is not immediately replaced by Sleep after the unlock animation." \
             --latest

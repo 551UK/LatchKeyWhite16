@@ -45,7 +45,7 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
     NSMutableArray *specifiers = [NSMutableArray array];
 
     PSSpecifier *mainGroup = [PSSpecifier groupSpecifierWithName:@"LatchKey"];
-    [mainGroup setProperty:@"Rootless iOS 16 port using the original LatchKey Face ID White animation and positioning behaviour." forKey:@"footerText"];
+    [mainGroup setProperty:@"Rootless iOS 16 port using the original LatchKey Face ID White animation." forKey:@"footerText"];
     [specifiers addObject:mainGroup];
 
     [specifiers addObject:[self preferenceSpecifierNamed:@"Enable"
@@ -54,8 +54,8 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
                                                     cell:PSSwitchCell]];
 
     PSSpecifier *position = [self preferenceSpecifierNamed:@"Position"
-                                                        key:@"option"
-                                               defaultValue:@1
+                                                        key:@"positionOption"
+                                               defaultValue:@0
                                                        cell:PSLinkListCell];
     [position setProperty:NSClassFromString(@"PSListItemsController") forKey:@"detail"];
     [position setProperty:@[@"Default",
@@ -69,7 +69,7 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
     [specifiers addObject:position];
 
     PSSpecifier *customGroup = [PSSpecifier groupSpecifierWithName:@"Custom Positioning"];
-    [customGroup setProperty:@"These values match original LatchKey. Choose Custom above to use them." forKey:@"footerText"];
+    [customGroup setProperty:@"Default leaves Apple's lock position untouched. Choose Custom to use these values." forKey:@"footerText"];
     [specifiers addObject:customGroup];
 
     PSSpecifier *x = [self preferenceSpecifierNamed:@"X Position"
@@ -178,7 +178,7 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
 }
 
 - (void)resetPosition {
-    CFPreferencesSetAppValue(CFSTR("option"), (__bridge CFPropertyListRef)@1, (__bridge CFStringRef)LKWPrefsDomain);
+    CFPreferencesSetAppValue(CFSTR("positionOption"), (__bridge CFPropertyListRef)@0, (__bridge CFStringRef)LKWPrefsDomain);
     CFPreferencesSetAppValue(CFSTR("xPos"), (__bridge CFPropertyListRef)@176.0, (__bridge CFStringRef)LKWPrefsDomain);
     CFPreferencesSetAppValue(CFSTR("yPos"), (__bridge CFPropertyListRef)@53.0, (__bridge CFStringRef)LKWPrefsDomain);
     CFPreferencesSetAppValue(CFSTR("scale"), (__bridge CFPropertyListRef)@1.0, (__bridge CFStringRef)LKWPrefsDomain);

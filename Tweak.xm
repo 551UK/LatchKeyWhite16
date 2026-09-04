@@ -1,24 +1,29 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
+#import <objc/runtime.h>
 
 @interface BSUICAPackageView : UIView
 - (instancetype)initWithPackageName:(NSString *)packageName inBundle:(NSBundle *)bundle;
+- (BOOL)setState:(id)state animated:(BOOL)animated transitionSpeed:(double)speed completion:(id)completion;
+- (BOOL)setState:(id)state onLayer:(id)layer animated:(BOOL)animated transitionSpeed:(double)speed completion:(id)completion;
 @end
 
 @interface SBUIProudLockIconView : UIView
 - (void)setState:(long long)state animated:(BOOL)animated options:(long long)options completion:(id)completion;
-- (void)_transitionToState:(long long)state animated:(BOOL)animated options:(long long)options completion:(id)completion;
 @end
 
 static NSString * const LKWPrefsDomain = @"com.551.latchkeywhite16";
 static NSString * const LKWPrefsChanged = @"com.551.latchkeywhite16/preferences.changed";
 
 static BOOL enabled = YES;
-static NSInteger option = 1;
+static NSInteger positionOption = 0;
 static CGFloat xPos = 176.0;
 static CGFloat yPos = 53.0;
 static CGFloat scale = 1.0;
+
+static char LKWThemedViewKey;
+static char LKWHoldUnlockedKey;
 
 static id LKWCopyPreference(NSString *key) {
     CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
@@ -31,8 +36,8 @@ static void LKWRefreshPrefs(void) {
     id value = LKWCopyPreference(@"enabled");
     enabled = value ? [value boolValue] : YES;
 
-    value = LKWCopyPreference(@"option");
-    option = value ? [value integerValue] : 1;
+    value = LKWCopyPreference(@"positionOption");
+    positionOption = value ? [value integerValue] : 0;
 
     value = LKWCopyPreference(@"xPos");
     xPos = value ? [value doubleValue] : 176.0;
@@ -62,30 +67,64 @@ static NSBundle *LKWFaceIDWhiteBundle(void) {
     return bundle;
 }
 
-static long long LKWOriginalLatchKeyState(long long state) {
-    // This is the same state remap used by the original LatchKey.
-    if (enabled && (state == 19 || state == 16)) {
-        return 1;
+static BOOL LKWStateIs(id state, NSString *name) {
+    return [state isKindOfClass:[NSString class]] &&
+           [(NSString *)state caseInsensitiveCompare:name] == NSOrderedSame;
+}
+
+static BOOL LKWIsThemedView(id view) {
+    return [objc_getAssociatedObject(view, &LKWThemedViewKey) boolValue];
+}
+
+static BOOL LKWHoldUnlocked(id view) {
+    return [objc_getAssociatedObject(view, &LKWHoldUnlockedKey) boolValue];
+}
+
+static void LKWSetHoldUnlocked(id view, BOOL hold) {
+    objc_setAssociatedObject(view, &LKWHoldUnlockedKey, @(hold), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static BOOL LKWHandlePackageState(id view, id state, id completion) {
+    if (!enabled || !LKWIsThemedView(view)) return NO;
+
+    if (LKWStateIs(state, @"Unlocked")) {
+        LKWSetHoldUnlocked(view, YES);
+        return NO;
     }
-    return state;
+
+    if (LKWStateIs(state, @"Locked") || LKWStateIs(state, @"Error")) {
+        LKWSetHoldUnlocked(view, NO);
+        return NO;
+    }
+
+    if (LKWStateIs(state, @"Sleep") && LKWHoldUnlocked(view)) {
+        if (completion) {
+            void (^block)(BOOL) = completion;
+            block(YES);
+        }
+        return YES;
+    }
+
+    return NO;
 }
 
 %hook SBUIProudLockIconView
 
+// Same state remap used by the original LatchKey.
 - (void)setState:(long long)state animated:(BOOL)animated options:(long long)options completion:(id)completion {
-    %orig(LKWOriginalLatchKeyState(state), animated, options, completion);
-}
-
-// iOS 16 uses this internal transition path as well. Apply the exact same
-// LatchKey state remap here and nothing else.
-- (void)_transitionToState:(long long)state animated:(BOOL)animated options:(long long)options completion:(id)completion {
-    %orig(LKWOriginalLatchKeyState(state), animated, options, completion);
+    if (enabled && (state == 19 || state == 16)) {
+        state = 1;
+    }
+    %orig(state, animated, options, completion);
 }
 
 - (void)layoutSubviews {
     %orig;
 
     if (!enabled) return;
+
+    // Default means exactly that: leave Apple's original frame/transform alone.
+    if (positionOption == 0) return;
 
     UIView *lock = nil;
     UIView *coachingView = nil;
@@ -101,12 +140,7 @@ static long long LKWOriginalLatchKeyState(long long state) {
         return;
     }
 
-    switch (option) {
-        case 0: // Default
-            self.hidden = NO;
-            lock.transform = CGAffineTransformIdentity;
-            break;
-
+    switch (positionOption) {
         case 1: // Status Bar
             self.hidden = NO;
             self.frame = CGRectMake(-lock.frame.origin.x + 38.0,
@@ -139,13 +173,15 @@ static long long LKWOriginalLatchKeyState(long long state) {
             break;
 
         case 5: // Custom
-        default:
             self.hidden = NO;
             lock.transform = CGAffineTransformMakeScale(scale, scale);
             self.frame = CGRectMake(-lock.frame.origin.x + xPos,
                                     -coachingView.frame.origin.y + yPos,
                                     self.frame.size.width,
                                     self.frame.size.height);
+            break;
+
+        default:
             break;
     }
 }
@@ -162,11 +198,25 @@ static long long LKWOriginalLatchKeyState(long long state) {
     }
 
     NSBundle *themeBundle = LKWFaceIDWhiteBundle();
-    if (!themeBundle) {
-        return %orig;
-    }
+    if (!themeBundle) return %orig;
 
-    return %orig(@"Face_ID_White", themeBundle);
+    id view = %orig(@"Face_ID_White", themeBundle);
+    if (view) {
+        objc_setAssociatedObject(view, &LKWThemedViewKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        LKWSetHoldUnlocked(view, NO);
+    }
+    return view;
+}
+
+// iOS 16 uses this selector for CA package state changes.
+- (BOOL)setState:(id)state animated:(BOOL)animated transitionSpeed:(double)speed completion:(id)completion {
+    if (LKWHandlePackageState(self, state, completion)) return YES;
+    return %orig(state, animated, speed, completion);
+}
+
+- (BOOL)setState:(id)state onLayer:(id)layer animated:(BOOL)animated transitionSpeed:(double)speed completion:(id)completion {
+    if (LKWHandlePackageState(self, state, completion)) return YES;
+    return %orig(state, layer, animated, speed, completion);
 }
 
 %end
