@@ -29,6 +29,37 @@ jobs:
           mkdir -p "$DEST"
           cp -R "$SRC" "$DEST/Face_ID_White.bundle"
 
+      - name: Remove legacy Sleep state
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("layout/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml")
+          s = p.read_text()
+          original = s
+
+          patterns = [
+              r'\s*<LKState name="Sleep">.*?</LKState>\s*',
+              r'\s*<LKStateTransition fromState="\*" toState="Sleep">.*?</LKStateTransition>\s*',
+              r'\s*<LKStateTransition fromState="Sleep" toState="\*">.*?</LKStateTransition>\s*',
+          ]
+          for pattern in patterns:
+              s = re.sub(pattern, "\n", s, flags=re.S)
+
+          if s == original:
+              raise SystemExit("Sleep state patch made no changes")
+
+          p.write_text(s)
+          PY
+
+          CAML="layout/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml"
+          ! grep -q '<LKState name="Sleep">' "$CAML"
+          ! grep -q 'toState="Sleep"' "$CAML"
+          ! grep -q 'fromState="Sleep"' "$CAML"
+          grep -q '<LKState name="Unlocked">' "$CAML"
+          grep -q 'Face_ID_37.png' "$CAML"
+
       - name: Build rootless package
         run: |
           make clean package FINALPACKAGE=1
@@ -54,6 +85,16 @@ jobs:
             exit 1
           fi
 
+          mkdir -p /tmp/latchkey-data
+          tar -xf "$DATA_TAR" -C /tmp/latchkey-data
+          CAML="/tmp/latchkey-data/var/jb/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml"
+          test -f "$CAML"
+          ! grep -q '<LKState name="Sleep">' "$CAML"
+          ! grep -q 'toState="Sleep"' "$CAML"
+          ! grep -q 'fromState="Sleep"' "$CAML"
+          grep -q '<LKState name="Unlocked">' "$CAML"
+          grep -q 'Face_ID_37.png' "$CAML"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -64,13 +105,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.2.3"
+          TAG="v1.2.4"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.2.3" \
-            --notes "Restores original LatchKey keep-visible behavior. Default position now leaves Apple's frame and transform untouched while still forcing the proud-lock view visible, matching the original tweak. Removes the extra iOS 16 controller-state workaround." \
+            --title "LatchKey White 16 v1.2.4" \
+            --notes "Fixes the disappearing Face ID tick at the theme level. The legacy iOS 12 Face ID White bundle's Sleep state explicitly faded the graphic to opacity 0; v1.2.4 removes that unsupported legacy Sleep state so iOS 16 cannot dismiss the completed Unlocked tick. Default position remains unchanged." \
             --latest
