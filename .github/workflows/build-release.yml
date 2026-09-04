@@ -1,6 +1,9 @@
 name: Build and Release
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -69,5 +72,5 @@ jobs:
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
             --title "LatchKey White 16 v1.2.3" \
-            --notes "Keeps the unlocked Face ID tick visible until the phone locks again or the screen turns off. Blocks every hide, fade, removal and None-state request on the themed proud-lock view after the unlock animation completes." \
+            --notes "Restores original LatchKey keep-visible behavior. Default position now leaves Apple's frame and transform untouched while still forcing the proud-lock view visible, matching the original tweak. Removes the extra iOS 16 controller-state workaround." \
             --latest
