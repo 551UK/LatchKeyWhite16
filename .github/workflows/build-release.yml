@@ -105,13 +105,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.2.4"
+          TAG="v1.2.5"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.2.4" \
-            --notes "Fixes the disappearing Face ID tick at the theme level. The legacy iOS 12 Face ID White bundle's Sleep state explicitly faded the graphic to opacity 0; v1.2.4 removes that unsupported legacy Sleep state so iOS 16 cannot dismiss the completed Unlocked tick. Default position remains unchanged." \
+            --title "LatchKey White 16 v1.2.5" \
+            --notes "Keeps the Face ID White package in iOS 16's active lock-glyph set and prevents SpringBoard from fading or hiding that themed package after the tick animation. This follows the visibility approach used by other lock-glyph tweaks and keeps Default positioning unchanged." \
             --latest

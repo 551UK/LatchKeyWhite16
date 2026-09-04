@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
+#import <objc/runtime.h>
 
 @interface BSUICAPackageView : UIView
 - (instancetype)initWithPackageName:(NSString *)packageName inBundle:(NSBundle *)bundle;
@@ -8,6 +9,7 @@
 
 @interface SBUIProudLockIconView : UIView
 - (void)setState:(long long)state animated:(BOOL)animated options:(long long)options completion:(id)completion;
+- (id)_activeViewsForState:(long long)state;
 @end
 
 static NSString * const LKWPrefsDomain = @"com.551.latchkeywhite16";
@@ -18,6 +20,8 @@ static NSInteger positionOption = 0;
 static CGFloat xPos = 176.0;
 static CGFloat yPos = 53.0;
 static CGFloat scale = 1.0;
+
+static char LKWThemedPackageKey;
 
 static id LKWCopyPreference(NSString *key) {
     CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
@@ -61,9 +65,22 @@ static NSBundle *LKWFaceIDWhiteBundle(void) {
     return bundle;
 }
 
+static BOOL LKWIsThemedPackage(id view) {
+    return [objc_getAssociatedObject(view, &LKWThemedPackageKey) boolValue];
+}
+
+static UIView *LKWLockView(SBUIProudLockIconView *view) {
+    @try {
+        id lock = [view valueForKey:@"_lockView"];
+        return [lock isKindOfClass:[UIView class]] ? lock : nil;
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+}
+
 %hook SBUIProudLockIconView
 
-// Same state remap used by the original LatchKey.
+// Same coaching-state remap used by the original LatchKey.
 - (void)setState:(long long)state animated:(BOOL)animated options:(long long)options completion:(id)completion {
     if (enabled && (state == 19 || state == 16)) {
         state = 1;
@@ -71,13 +88,39 @@ static NSBundle *LKWFaceIDWhiteBundle(void) {
     %orig(state, animated, options, completion);
 }
 
+// iOS 16 can switch between several internal glyph views and fade any view
+// that drops out of the active set. Keep our themed lock package active so it
+// is never treated as an outgoing glyph after the Face ID tick completes.
+- (id)_activeViewsForState:(long long)state {
+    id original = %orig(state);
+    if (!enabled) return original;
+
+    UIView *lock = LKWLockView(self);
+    if (!lock || !LKWIsThemedPackage(lock)) return original;
+
+    if (!original) {
+        return @[lock];
+    }
+
+    if ([original isKindOfClass:[NSArray class]]) {
+        NSArray *views = (NSArray *)original;
+        if ([views containsObject:lock]) return original;
+
+        NSMutableArray *updated = [views mutableCopy];
+        [updated addObject:lock];
+        return updated;
+    }
+
+    return original;
+}
+
 - (void)layoutSubviews {
     %orig;
 
     if (!enabled) return;
 
-    // Original LatchKey always keeps the proud-lock view visible.
-    // In Default mode it does ONLY this, so Apple's original position is untouched.
+    // Match original LatchKey: Default keeps Apple's frame/transform exactly
+    // as-is, but never hides the proud-lock container.
     if (positionOption == 0) {
         self.hidden = NO;
         return;
@@ -148,7 +191,8 @@ static NSBundle *LKWFaceIDWhiteBundle(void) {
 
 %hook BSUICAPackageView
 
-// Same theme replacement method used by original LatchKey, adapted only for rootless pathing.
+// Same theme replacement method used by original LatchKey, adapted for the
+// rootless theme path. Mark only the package instance that we replace.
 - (instancetype)initWithPackageName:(NSString *)packageName inBundle:(NSBundle *)bundle {
     if (!enabled ||
         ![packageName isKindOfClass:[NSString class]] ||
@@ -159,7 +203,30 @@ static NSBundle *LKWFaceIDWhiteBundle(void) {
     NSBundle *themeBundle = LKWFaceIDWhiteBundle();
     if (!themeBundle) return %orig;
 
-    return %orig(@"Face_ID_White", themeBundle);
+    id view = %orig(@"Face_ID_White", themeBundle);
+    if (view) {
+        objc_setAssociatedObject(view, &LKWThemedPackageKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return view;
+}
+
+// Modern SBUIProudLockIconView fades outgoing active views by setting the
+// UIView alpha to zero. LockGlyph-style tweaks avoid that system-owned fade;
+// do the same only for our marked Face ID White package.
+- (void)setAlpha:(CGFloat)alpha {
+    if (enabled && LKWIsThemedPackage(self) && alpha < 1.0) {
+        %orig(1.0);
+        return;
+    }
+    %orig(alpha);
+}
+
+- (void)setHidden:(BOOL)hidden {
+    if (enabled && LKWIsThemedPackage(self) && hidden) {
+        %orig(NO);
+        return;
+    }
+    %orig(hidden);
 }
 
 %end
