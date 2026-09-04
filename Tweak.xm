@@ -1,9 +1,11 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
+#import <objc/runtime.h>
 
 @interface BSUICAPackageView : UIView
 - (instancetype)initWithPackageName:(NSString *)packageName inBundle:(NSBundle *)bundle;
+- (BOOL)setState:(NSString *)state onLayer:(id)layer animated:(BOOL)animated transitionSpeed:(double)speed completion:(void (^)(BOOL finished))completion;
 @end
 
 @interface SBUIProudLockIconView : UIView
@@ -17,6 +19,8 @@ static CGFloat lkwXOffset = 0.0;
 static CGFloat lkwYOffset = 0.0;
 static CGFloat lkwScale = 1.0;
 static NSHashTable<SBUIProudLockIconView *> *lkwLockViews = nil;
+static char LKWThemeMarkerKey;
+static char LKWHoldUnlockedKey;
 
 static id LKWPreferenceValue(NSString *key) {
     CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
@@ -52,11 +56,41 @@ static NSBundle *LKWWhiteThemeBundle(void) {
     return cachedBundle;
 }
 
+static BOOL LKWStateEquals(NSString *state, NSString *wanted) {
+    return [state isKindOfClass:[NSString class]] &&
+           [state caseInsensitiveCompare:wanted] == NSOrderedSame;
+}
+
+static BOOL LKWIsThemedPackage(BSUICAPackageView *view) {
+    return [objc_getAssociatedObject(view, &LKWThemeMarkerKey) boolValue];
+}
+
+static BOOL LKWHoldingUnlocked(BSUICAPackageView *view) {
+    return [objc_getAssociatedObject(view, &LKWHoldUnlockedKey) boolValue];
+}
+
+static void LKWSetHoldingUnlocked(BSUICAPackageView *view, BOOL hold) {
+    objc_setAssociatedObject(view,
+                             &LKWHoldUnlockedKey,
+                             @(hold),
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
 static UIView *LKWIconContainerForView(SBUIProudLockIconView *view) {
     if (!view) return nil;
     @try {
         id container = [view valueForKey:@"_iconContainerView"];
         return [container isKindOfClass:[UIView class]] ? container : nil;
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+}
+
+static UIView *LKWLockContentForView(SBUIProudLockIconView *view) {
+    if (!view) return nil;
+    @try {
+        id lockView = [view valueForKey:@"_lockView"];
+        return [lockView isKindOfClass:[UIView class]] ? lockView : nil;
     } @catch (__unused NSException *exception) {
         return nil;
     }
@@ -69,6 +103,17 @@ static void LKWApplyPosition(SBUIProudLockIconView *view) {
     if (!lkwEnabled) {
         container.transform = CGAffineTransformIdentity;
         return;
+    }
+
+    view.hidden = NO;
+    view.alpha = 1.0;
+    container.hidden = NO;
+    container.alpha = 1.0;
+
+    UIView *lockView = LKWLockContentForView(view);
+    if (lockView) {
+        lockView.hidden = NO;
+        lockView.alpha = 1.0;
     }
 
     CGPoint center = container.center;
@@ -104,8 +149,33 @@ static void LKWPrefsChangedCallback(CFNotificationCenterRef center,
         [packageName rangeOfString:@"lock" options:NSCaseInsensitiveSearch].location != NSNotFound) {
         NSBundle *theme = LKWWhiteThemeBundle();
         if (theme) {
-            return %orig(@"Face_ID_White", theme);
+            BSUICAPackageView *view = %orig(@"Face_ID_White", theme);
+            if (view) {
+                objc_setAssociatedObject(view,
+                                         &LKWThemeMarkerKey,
+                                         @YES,
+                                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+                LKWSetHoldingUnlocked(view, NO);
+            }
+            return view;
         }
+    }
+
+    return %orig;
+}
+
+- (BOOL)setState:(NSString *)state onLayer:(id)layer animated:(BOOL)animated transitionSpeed:(double)speed completion:(void (^)(BOOL finished))completion {
+    if (!lkwEnabled || !LKWIsThemedPackage(self)) {
+        return %orig;
+    }
+
+    if (LKWStateEquals(state, @"Unlocked")) {
+        LKWSetHoldingUnlocked(self, YES);
+    } else if (LKWStateEquals(state, @"Locked") || LKWStateEquals(state, @"Error")) {
+        LKWSetHoldingUnlocked(self, NO);
+    } else if (LKWStateEquals(state, @"Sleep") && LKWHoldingUnlocked(self)) {
+        if (completion) completion(YES);
+        return YES;
     }
 
     return %orig;
