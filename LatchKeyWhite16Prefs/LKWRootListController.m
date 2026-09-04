@@ -20,29 +20,7 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-
-    UIImage *image = [UIImage systemImageNamed:@"lock.open.fill"];
-    UIImageView *iconView = [[UIImageView alloc] initWithImage:image];
-    iconView.tintColor = UIColor.labelColor;
-    iconView.contentMode = UIViewContentModeScaleAspectFit;
-    iconView.translatesAutoresizingMaskIntoConstraints = NO;
-
-    UILabel *titleLabel = [UILabel new];
-    titleLabel.text = @"LatchKey White 16";
-    titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    titleLabel.textColor = UIColor.labelColor;
-
-    UIStackView *titleView = [[UIStackView alloc] initWithArrangedSubviews:@[iconView, titleLabel]];
-    titleView.axis = UILayoutConstraintAxisHorizontal;
-    titleView.alignment = UIStackViewAlignmentCenter;
-    titleView.spacing = 6.0;
-
-    [NSLayoutConstraint activateConstraints:@[
-        [iconView.widthAnchor constraintEqualToConstant:18.0],
-        [iconView.heightAnchor constraintEqualToConstant:18.0]
-    ]];
-
-    self.navigationItem.titleView = titleView;
+    self.title = @"LatchKey White 16";
 }
 
 - (PSSpecifier *)preferenceSpecifierNamed:(NSString *)name
@@ -66,37 +44,52 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
 - (NSArray *)manualSpecifiers {
     NSMutableArray *specifiers = [NSMutableArray array];
 
-    PSSpecifier *mainGroup = [PSSpecifier groupSpecifierWithName:@"LatchKey White 16"];
-    [mainGroup setProperty:@"The original LatchKey Face ID White lock animation, adapted for rootless iOS 16." forKey:@"footerText"];
+    PSSpecifier *mainGroup = [PSSpecifier groupSpecifierWithName:@"LatchKey"];
+    [mainGroup setProperty:@"Rootless iOS 16 port using the original LatchKey Face ID White animation and positioning behaviour." forKey:@"footerText"];
     [specifiers addObject:mainGroup];
 
     [specifiers addObject:[self preferenceSpecifierNamed:@"Enable"
-                                                     key:@"Enabled"
+                                                     key:@"enabled"
                                             defaultValue:@YES
                                                     cell:PSSwitchCell]];
 
-    PSSpecifier *positionGroup = [PSSpecifier groupSpecifierWithName:@"Custom Position"];
-    [positionGroup setProperty:@"Offsets are relative to Apple's normal lock position. Positive X moves right. Positive Y moves down. Scale 1.0 is the original size." forKey:@"footerText"];
-    [specifiers addObject:positionGroup];
+    PSSpecifier *position = [self preferenceSpecifierNamed:@"Position"
+                                                        key:@"option"
+                                               defaultValue:@1
+                                                       cell:PSLinkListCell];
+    [position setProperty:NSClassFromString(@"PSListItemsController") forKey:@"detail"];
+    [position setProperty:@[@"Default",
+                            @"Status Bar",
+                            @"Compact Status Bar (right)",
+                            @"Compact Status Bar (left)",
+                            @"Hidden",
+                            @"Custom"]
+                 forKey:@"validTitles"];
+    [position setProperty:@[@0, @1, @2, @3, @4, @5] forKey:@"validValues"];
+    [specifiers addObject:position];
 
-    PSSpecifier *xOffset = [self preferenceSpecifierNamed:@"X Offset"
-                                                       key:@"XOffset"
-                                              defaultValue:@0.0
-                                                      cell:PSEditTextCell];
-    [xOffset setProperty:@YES forKey:@"isNumeric"];
-    [xOffset setProperty:@"0" forKey:@"placeholder"];
-    [specifiers addObject:xOffset];
+    PSSpecifier *customGroup = [PSSpecifier groupSpecifierWithName:@"Custom Positioning"];
+    [customGroup setProperty:@"These values match original LatchKey. Choose Custom above to use them." forKey:@"footerText"];
+    [specifiers addObject:customGroup];
 
-    PSSpecifier *yOffset = [self preferenceSpecifierNamed:@"Y Offset"
-                                                       key:@"YOffset"
-                                              defaultValue:@0.0
-                                                      cell:PSEditTextCell];
-    [yOffset setProperty:@YES forKey:@"isNumeric"];
-    [yOffset setProperty:@"0" forKey:@"placeholder"];
-    [specifiers addObject:yOffset];
+    PSSpecifier *x = [self preferenceSpecifierNamed:@"X Position"
+                                                 key:@"xPos"
+                                        defaultValue:@176.0
+                                                cell:PSEditTextCell];
+    [x setProperty:@YES forKey:@"isNumeric"];
+    [x setProperty:@"176" forKey:@"placeholder"];
+    [specifiers addObject:x];
+
+    PSSpecifier *y = [self preferenceSpecifierNamed:@"Y Position"
+                                                 key:@"yPos"
+                                        defaultValue:@53.0
+                                                cell:PSEditTextCell];
+    [y setProperty:@YES forKey:@"isNumeric"];
+    [y setProperty:@"53" forKey:@"placeholder"];
+    [specifiers addObject:y];
 
     PSSpecifier *scale = [self preferenceSpecifierNamed:@"Scale"
-                                                     key:@"Scale"
+                                                     key:@"scale"
                                             defaultValue:@1.0
                                                     cell:PSEditTextCell];
     [scale setProperty:@YES forKey:@"isDecimalPad"];
@@ -149,37 +142,30 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
 }
 
 - (id)readPreferenceValue:(PSSpecifier *)specifier {
-    NSString *defaults = [specifier propertyForKey:@"defaults"] ?: LKWPrefsDomain;
     NSString *key = [specifier propertyForKey:@"key"];
-    id defaultValue = [specifier propertyForKey:@"default"];
+    id fallback = [specifier propertyForKey:@"default"];
+    if (!key) return fallback;
 
-    if (!key) return defaultValue;
-
-    CFPreferencesAppSynchronize((__bridge CFStringRef)defaults);
+    CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
     CFPropertyListRef value = CFPreferencesCopyAppValue((__bridge CFStringRef)key,
-                                                        (__bridge CFStringRef)defaults);
-    return value ? CFBridgingRelease(value) : defaultValue;
+                                                        (__bridge CFStringRef)LKWPrefsDomain);
+    return value ? CFBridgingRelease(value) : fallback;
 }
 
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
-    NSString *defaults = [specifier propertyForKey:@"defaults"] ?: LKWPrefsDomain;
     NSString *key = [specifier propertyForKey:@"key"];
-    NSString *notification = [specifier propertyForKey:@"PostNotification"];
-
     if (!key) return;
 
     CFPreferencesSetAppValue((__bridge CFStringRef)key,
                              (__bridge CFPropertyListRef)value,
-                             (__bridge CFStringRef)defaults);
-    CFPreferencesAppSynchronize((__bridge CFStringRef)defaults);
+                             (__bridge CFStringRef)LKWPrefsDomain);
+    CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
 
-    if (notification.length > 0) {
-        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                             (__bridge CFStringRef)notification,
-                                             NULL,
-                                             NULL,
-                                             true);
-    }
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                         (__bridge CFStringRef)LKWPrefsChanged,
+                                         NULL,
+                                         NULL,
+                                         true);
 }
 
 - (void)postPreferencesChanged {
@@ -192,9 +178,10 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
 }
 
 - (void)resetPosition {
-    CFPreferencesSetAppValue(CFSTR("XOffset"), (__bridge CFPropertyListRef)@0.0, (__bridge CFStringRef)LKWPrefsDomain);
-    CFPreferencesSetAppValue(CFSTR("YOffset"), (__bridge CFPropertyListRef)@0.0, (__bridge CFStringRef)LKWPrefsDomain);
-    CFPreferencesSetAppValue(CFSTR("Scale"), (__bridge CFPropertyListRef)@1.0, (__bridge CFStringRef)LKWPrefsDomain);
+    CFPreferencesSetAppValue(CFSTR("option"), (__bridge CFPropertyListRef)@1, (__bridge CFStringRef)LKWPrefsDomain);
+    CFPreferencesSetAppValue(CFSTR("xPos"), (__bridge CFPropertyListRef)@176.0, (__bridge CFStringRef)LKWPrefsDomain);
+    CFPreferencesSetAppValue(CFSTR("yPos"), (__bridge CFPropertyListRef)@53.0, (__bridge CFStringRef)LKWPrefsDomain);
+    CFPreferencesSetAppValue(CFSTR("scale"), (__bridge CFPropertyListRef)@1.0, (__bridge CFStringRef)LKWPrefsDomain);
     [self postPreferencesChanged];
     [self reloadSpecifiers];
 }
