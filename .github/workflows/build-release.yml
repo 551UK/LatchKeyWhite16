@@ -37,9 +37,14 @@ jobs:
         run: |
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           test -n "$DEB"
-          dpkg-deb -c "$DEB" | tee /tmp/package-files.txt
+          mkdir -p /tmp/latchkey-deb
+          cd /tmp/latchkey-deb
+          ar -x "$GITHUB_WORKSPACE/$DEB"
+          DATA_TAR="$(find . -maxdepth 1 -name 'data.tar*' -type f | head -n 1)"
+          test -n "$DATA_TAR"
+          tar -tf "$DATA_TAR" | tee /tmp/package-files.txt
           grep -q "LatchKeyWhite16.dylib" /tmp/package-files.txt
-          grep -q "Face_ID_White.bundle/Face_ID_White.ca/main.caml" /tmp/package-files.txt
+          grep -q "var/jb/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml" /tmp/package-files.txt
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
