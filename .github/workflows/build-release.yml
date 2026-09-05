@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: latchkeywhite16-release
+  group: latchkeywhite16-release-v134
   cancel-in-progress: true
 
 permissions:
