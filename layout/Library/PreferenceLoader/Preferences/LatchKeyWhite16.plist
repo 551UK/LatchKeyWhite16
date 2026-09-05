@@ -17,7 +17,7 @@
         <key>isController</key>
         <true/>
         <key>iconImageSystem</key>
-        <string>lock.open.fill</string>
+        <string>faceid</string>
     </dict>
 </dict>
 </plist>
