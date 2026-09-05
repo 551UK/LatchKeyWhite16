@@ -21,10 +21,6 @@ static NSString * const LKWPrefsDomain = @"com.551.latchkeywhite16";
 static NSString * const LKWPrefsChanged = @"com.551.latchkeywhite16/preferences.changed";
 
 static BOOL enabled = YES;
-static NSInteger positionOption = 0;
-static CGFloat xPos = 176.0;
-static CGFloat yPos = 53.0;
-static CGFloat scale = 1.0;
 
 static char LKWThemedPackageKey;
 static char LKWHoldUnlockedKey;
@@ -40,18 +36,6 @@ static id LKWCopyPreference(NSString *key) {
 static void LKWRefreshPrefs(void) {
     id value = LKWCopyPreference(@"enabled");
     enabled = value ? [value boolValue] : YES;
-
-    value = LKWCopyPreference(@"positionOption");
-    positionOption = value ? [value integerValue] : 0;
-
-    value = LKWCopyPreference(@"xPos");
-    xPos = value ? [value doubleValue] : 176.0;
-
-    value = LKWCopyPreference(@"yPos");
-    yPos = value ? [value doubleValue] : 53.0;
-
-    value = LKWCopyPreference(@"scale");
-    scale = value ? [value doubleValue] : 1.0;
 }
 
 static void LKWPrefsChangedCallback(CFNotificationCenterRef center,
@@ -84,10 +68,7 @@ static BOOL LKWHoldingUnlocked(id view) {
 }
 
 static void LKWSetHoldingUnlocked(id view, BOOL holding) {
-    objc_setAssociatedObject(view,
-                             &LKWHoldUnlockedKey,
-                             @(holding),
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(view, &LKWHoldUnlockedKey, @(holding), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 static BOOL LKWRootHoldingUnlocked(id view) {
@@ -95,10 +76,7 @@ static BOOL LKWRootHoldingUnlocked(id view) {
 }
 
 static void LKWSetRootHoldingUnlocked(id view, BOOL holding) {
-    objc_setAssociatedObject(view,
-                             &LKWRootUnlockedKey,
-                             @(holding),
-                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    objc_setAssociatedObject(view, &LKWRootUnlockedKey, @(holding), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 static UIView *LKWGetViewForKey(id root, NSString *key) {
@@ -111,7 +89,7 @@ static UIView *LKWGetViewForKey(id root, NSString *key) {
 }
 
 static void LKWForceUnlockedVisibility(id root) {
-    if (!enabled || positionOption == 4 || !LKWRootHoldingUnlocked(root)) return;
+    if (!enabled || !LKWRootHoldingUnlocked(root)) return;
 
     UIView *rootView = [root isKindOfClass:[UIView class]] ? root : nil;
     UIView *iconContainer = LKWGetViewForKey(root, @"_iconContainerView");
@@ -137,7 +115,7 @@ static void LKWForceUnlockedVisibility(id root) {
 }
 
 static void LKWUpdateRootState(id root, long long state) {
-    if (state == 1 || state == 0) {
+    if (state == 0 || state == 1) {
         LKWSetRootHoldingUnlocked(root, NO);
     } else if (state == 2) {
         LKWSetRootHoldingUnlocked(root, YES);
@@ -148,31 +126,23 @@ static long long LKWFilteredRootState(id root, long long state) {
     if (!enabled) return state;
 
     if (LKWRootHoldingUnlocked(root)) {
-        if (state == 1 || state == 0 || state == 2) {
-            return state;
-        }
-        NSLog(@"[LatchKeyWhite16] remapping post-unlock proud-lock state %lld to 2", state);
+        if (state == 0 || state == 1 || state == 2) return state;
         return 2;
     }
 
-    if (state == 19 || state == 16) {
-        return 1;
-    }
-
+    if (state == 16 || state == 19) return 1;
     return state;
 }
 
 static id LKWViewsByKeepingLockActive(id root, id views, long long state) {
-    if (!enabled || positionOption == 4) return views;
-    if (state != 2 && !LKWRootHoldingUnlocked(root)) return views;
+    if (!enabled || (state != 2 && !LKWRootHoldingUnlocked(root))) return views;
 
     UIView *lockView = LKWGetViewForKey(root, @"_lockView");
     if (!lockView) return views;
 
     if ([views isKindOfClass:[NSArray class]]) {
         NSArray *array = (NSArray *)views;
-        if ([array containsObject:lockView]) return array;
-        return [array arrayByAddingObject:lockView];
+        return [array containsObject:lockView] ? array : [array arrayByAddingObject:lockView];
     }
 
     if ([views isKindOfClass:[NSSet class]]) {
@@ -187,15 +157,8 @@ static id LKWViewsByKeepingLockActive(id root, id views, long long state) {
 }
 
 static BOOL LKWShouldBlockPackageState(id view, id state) {
-    if (!enabled || !LKWIsThemedPackage(view) || !LKWHoldingUnlocked(view)) {
-        return NO;
-    }
-
-    if (LKWIsState(state, @"Locked") || LKWIsState(state, @"Unlocked")) {
-        return NO;
-    }
-
-    return YES;
+    if (!enabled || !LKWIsThemedPackage(view) || !LKWHoldingUnlocked(view)) return NO;
+    return !LKWIsState(state, @"Locked") && !LKWIsState(state, @"Unlocked");
 }
 
 static void LKWDidAcceptPackageState(id view, id state, BOOL accepted) {
@@ -226,9 +189,7 @@ static BOOL LKWCompleteBlockedState(id completion) {
     long long filtered = LKWFilteredRootState(self, state);
     LKWUpdateRootState(self, filtered);
     %orig(filtered, animated, updateText, options, completion);
-    if (LKWRootHoldingUnlocked(self)) {
-        LKWForceUnlockedVisibility(self);
-    }
+    LKWForceUnlockedVisibility(self);
 }
 
 - (void)_transitionToState:(long long)state
@@ -239,12 +200,11 @@ static BOOL LKWCompleteBlockedState(id completion) {
     long long filtered = LKWFilteredRootState(self, state);
     LKWUpdateRootState(self, filtered);
     %orig(filtered, animated, updateText, options, completion);
+    LKWForceUnlockedVisibility(self);
+
     if (LKWRootHoldingUnlocked(self)) {
-        LKWForceUnlockedVisibility(self);
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (LKWRootHoldingUnlocked(self)) {
-                LKWForceUnlockedVisibility(self);
-            }
+            LKWForceUnlockedVisibility(self);
         });
     }
 }
@@ -256,101 +216,24 @@ static BOOL LKWCompleteBlockedState(id completion) {
     long long filtered = LKWFilteredRootState(self, state);
     LKWUpdateRootState(self, filtered);
     %orig(filtered, animated, options, completion);
-    if (LKWRootHoldingUnlocked(self)) {
-        LKWForceUnlockedVisibility(self);
-    }
+    LKWForceUnlockedVisibility(self);
 }
 
 - (id)_activeViewsForState:(long long)state {
-    id views = %orig(state);
-    return LKWViewsByKeepingLockActive(self, views, state);
+    return LKWViewsByKeepingLockActive(self, %orig(state), state);
 }
 
 - (void)setAlpha:(CGFloat)alpha {
-    if (enabled && positionOption != 4 && LKWRootHoldingUnlocked(self)) {
-        %orig(1.0);
-    } else {
-        %orig(alpha);
-    }
+    %orig(enabled && LKWRootHoldingUnlocked(self) ? 1.0 : alpha);
 }
 
 - (void)setHidden:(BOOL)hidden {
-    if (enabled && positionOption != 4 && LKWRootHoldingUnlocked(self)) {
-        %orig(NO);
-    } else {
-        %orig(hidden);
-    }
+    %orig(enabled && LKWRootHoldingUnlocked(self) ? NO : hidden);
 }
 
 - (void)layoutSubviews {
     %orig;
-
-    if (!enabled) return;
-
-    UIView *lock = LKWGetViewForKey(self, @"_lockView");
-    UIView *coachingView = nil;
-
-    if (LKWRootHoldingUnlocked(self)) {
-        LKWForceUnlockedVisibility(self);
-    }
-
-    if (positionOption == 0) {
-        self.hidden = NO;
-        return;
-    }
-
-    coachingView = LKWGetViewForKey(self, @"_lazy_faceIDCoachingView");
-    if (!lock || !coachingView) return;
-
-    switch (positionOption) {
-        case 1:
-            self.hidden = NO;
-            self.frame = CGRectMake(-lock.frame.origin.x + 38.0,
-                                    -coachingView.frame.origin.y,
-                                    self.frame.size.width,
-                                    self.frame.size.height);
-            lock.transform = CGAffineTransformMakeScale(0.6, 0.6);
-            break;
-
-        case 2:
-            self.hidden = NO;
-            self.frame = CGRectMake(-lock.frame.origin.x + 65.0,
-                                    -coachingView.frame.origin.y + 3.0,
-                                    self.frame.size.width,
-                                    self.frame.size.height);
-            lock.transform = CGAffineTransformMakeScale(0.4, 0.4);
-            break;
-
-        case 3:
-            self.hidden = NO;
-            self.frame = CGRectMake(-lock.frame.origin.x + 14.0,
-                                    -coachingView.frame.origin.y + 3.0,
-                                    self.frame.size.width,
-                                    self.frame.size.height);
-            lock.transform = CGAffineTransformMakeScale(0.4, 0.4);
-            break;
-
-        case 4:
-            self.hidden = YES;
-            break;
-
-        case 5:
-            self.hidden = NO;
-            lock.transform = CGAffineTransformMakeScale(scale, scale);
-            self.frame = CGRectMake(-lock.frame.origin.x + xPos,
-                                    -coachingView.frame.origin.y + yPos,
-                                    self.frame.size.width,
-                                    self.frame.size.height);
-            break;
-
-        default:
-            self.hidden = NO;
-            break;
-    }
-
-    if (LKWRootHoldingUnlocked(self)) {
-        LKWForceUnlockedVisibility(self);
-    }
+    LKWForceUnlockedVisibility(self);
 }
 
 %end
@@ -369,48 +252,29 @@ static BOOL LKWCompleteBlockedState(id completion) {
 
     id view = %orig(@"Face_ID_White", themeBundle);
     if (view) {
-        objc_setAssociatedObject(view,
-                                 &LKWThemedPackageKey,
-                                 @YES,
-                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(view, &LKWThemedPackageKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         LKWSetHoldingUnlocked(view, NO);
     }
     return view;
 }
 
 - (void)setAlpha:(CGFloat)alpha {
-    if (enabled && positionOption != 4 && LKWIsThemedPackage(self) && LKWHoldingUnlocked(self)) {
-        %orig(1.0);
-    } else {
-        %orig(alpha);
-    }
+    %orig(enabled && LKWIsThemedPackage(self) && LKWHoldingUnlocked(self) ? 1.0 : alpha);
 }
 
 - (void)setHidden:(BOOL)hidden {
-    if (enabled && positionOption != 4 && LKWIsThemedPackage(self) && LKWHoldingUnlocked(self)) {
-        %orig(NO);
-    } else {
-        %orig(hidden);
-    }
+    %orig(enabled && LKWIsThemedPackage(self) && LKWHoldingUnlocked(self) ? NO : hidden);
 }
 
 - (BOOL)setState:(id)state {
-    if (LKWShouldBlockPackageState(self, state)) {
-        NSLog(@"[LatchKeyWhite16] keeping Unlocked; blocked package state %@", state);
-        return YES;
-    }
-
+    if (LKWShouldBlockPackageState(self, state)) return YES;
     BOOL accepted = %orig(state);
     LKWDidAcceptPackageState(self, state, accepted);
     return accepted;
 }
 
 - (BOOL)setState:(id)state animated:(BOOL)animated {
-    if (LKWShouldBlockPackageState(self, state)) {
-        NSLog(@"[LatchKeyWhite16] keeping Unlocked; blocked package state %@", state);
-        return YES;
-    }
-
+    if (LKWShouldBlockPackageState(self, state)) return YES;
     BOOL accepted = %orig(state, animated);
     LKWDidAcceptPackageState(self, state, accepted);
     return accepted;
@@ -420,11 +284,7 @@ static BOOL LKWCompleteBlockedState(id completion) {
         animated:(BOOL)animated
  transitionSpeed:(double)speed
       completion:(id)completion {
-    if (LKWShouldBlockPackageState(self, state)) {
-        NSLog(@"[LatchKeyWhite16] keeping Unlocked; blocked package state %@", state);
-        return LKWCompleteBlockedState(completion);
-    }
-
+    if (LKWShouldBlockPackageState(self, state)) return LKWCompleteBlockedState(completion);
     BOOL accepted = %orig(state, animated, speed, completion);
     LKWDidAcceptPackageState(self, state, accepted);
     return accepted;
@@ -435,8 +295,7 @@ static BOOL LKWCompleteBlockedState(id completion) {
 %hook CSProudLockViewController
 
 - (BOOL)_shouldApplyScaleAndBlurForAuthenticated {
-    if (enabled) return NO;
-    return %orig;
+    return enabled ? NO : %orig;
 }
 
 %end
