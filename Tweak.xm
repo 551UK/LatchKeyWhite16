@@ -178,9 +178,9 @@ static id LKWViewsByKeepingLockActive(id root, id views, long long state) {
     if ([views isKindOfClass:[NSSet class]]) {
         NSSet *set = (NSSet *)views;
         if ([set containsObject:lockView]) return set;
-        NSMutableSet *mutable = [set mutableCopy];
-        [mutable addObject:lockView];
-        return [mutable copy];
+        NSMutableSet *mutableSet = [set mutableCopy];
+        [mutableSet addObject:lockView];
+        return [mutableSet copy];
     }
 
     return views;
@@ -249,7 +249,6 @@ static BOOL LKWCompleteBlockedState(id completion) {
     }
 }
 
-// Kept for iOS 16 builds that expose the older transition selector too.
 - (void)_transitionToState:(long long)state
                   animated:(BOOL)animated
                    options:(long long)options
