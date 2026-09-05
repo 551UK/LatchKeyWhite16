@@ -33,7 +33,7 @@ jobs:
           mkdir -p "$DEST"
           cp -R "$SRC" "$DEST/Face_ID_White.bundle"
 
-      - name: Verify working iOS 16 path
+      - name: Verify working iOS 16 path and geometry controls
         run: |
           CAML="layout/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml"
           test -f "$CAML"
@@ -46,17 +46,25 @@ jobs:
           grep -q 'LKWViewsByKeepingLockActive' Tweak.xm
           grep -q '_shouldApplyScaleAndBlurForAuthenticated' Tweak.xm
           grep -q 'LKWForceUnlockedVisibility' Tweak.xm
+          grep -q 'LKWApplyGeometry' Tweak.xm
+          grep -q 'xOffset' Tweak.xm
+          grep -q 'yOffset' Tweak.xm
+          grep -q 'glyphScale' Tweak.xm
+          grep -q 'CGAffineTransformMakeScale' Tweak.xm
+          grep -q 'transform.tx = xOffset' Tweak.xm
+          grep -q 'transform.ty = yOffset' Tweak.xm
+          grep -q 'LKWRefreshVisibleRoots' Tweak.xm
+
+          grep -q 'X Offset' LatchKeyWhite16Prefs/LKWRootListController.m
+          grep -q 'Y Offset' LatchKeyWhite16Prefs/LKWRootListController.m
+          grep -q 'Scale' LatchKeyWhite16Prefs/LKWRootListController.m
+          grep -q 'Reset Position & Scale' LatchKeyWhite16Prefs/LKWRootListController.m
 
           ! grep -q 'positionOption' Tweak.xm
-          ! grep -q 'xPos' Tweak.xm
-          ! grep -q 'yPos' Tweak.xm
+          ! grep -q 'PSLinkListCell' LatchKeyWhite16Prefs/LKWRootListController.m
           ! grep -q 'LKWOwnedPackage' Tweak.xm
           ! grep -q 'LKWPausePackageLayer' Tweak.xm
           ! grep -q 'QuartzCore' Tweak.xm
-
-          ! grep -q 'PSLinkListCell' LatchKeyWhite16Prefs/LKWRootListController.m
-          ! grep -q 'Reset Position' LatchKeyWhite16Prefs/LKWRootListController.m
-          ! grep -q 'Custom Positioning' LatchKeyWhite16Prefs/LKWRootListController.m
 
       - name: Build rootless package
         run: |
@@ -93,7 +101,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.3.3"
+          TAG="v1.3.4"
 
           gh release list --limit 100 --json tagName --jq '.[].tagName' | while read -r OLD_TAG; do
             [ -z "$OLD_TAG" ] && continue
@@ -111,7 +119,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.3.3"
+          TAG="v1.3.4"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -120,6 +128,6 @@ jobs:
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
 
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.3.3" \
-            --notes "Cleaned working iOS 16 build. Keeps the v1.3.2 proud-lock fix, removes unused positioning code/settings, and leaves only Enable, Respring and GitHub in preferences." \
+            --title "LatchKey White 16 v1.3.4" \
+            --notes "Adds working X Offset, Y Offset and Scale controls applied directly to SpringBoard's real _lockView. Changes are re-applied live when preferences change and the successful v1.3.2/v1.3.3 proud-lock persistence fix is unchanged." \
             --latest
