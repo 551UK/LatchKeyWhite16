@@ -28,6 +28,7 @@ static CGFloat scale = 1.0;
 
 static char LKWThemedPackageKey;
 static char LKWHoldUnlockedKey;
+static char LKWRootUnlockedKey;
 
 static id LKWCopyPreference(NSString *key) {
     CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
@@ -89,12 +90,55 @@ static void LKWSetHoldingUnlocked(id view, BOOL holding) {
                              OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
+static BOOL LKWRootHoldingUnlocked(id view) {
+    return [objc_getAssociatedObject(view, &LKWRootUnlockedKey) boolValue];
+}
+
+static void LKWSetRootHoldingUnlocked(id view, BOOL holding) {
+    objc_setAssociatedObject(view,
+                             &LKWRootUnlockedKey,
+                             @(holding),
+                             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static UIView *LKWGetViewForKey(id root, NSString *key) {
+    @try {
+        id value = [root valueForKey:key];
+        return [value isKindOfClass:[UIView class]] ? value : nil;
+    } @catch (__unused NSException *exception) {
+        return nil;
+    }
+}
+
+static void LKWForceUnlockedVisibility(id root) {
+    if (!enabled || positionOption == 4 || !LKWRootHoldingUnlocked(root)) return;
+
+    UIView *rootView = [root isKindOfClass:[UIView class]] ? root : nil;
+    UIView *iconContainer = LKWGetViewForKey(root, @"_iconContainerView");
+    UIView *lockView = LKWGetViewForKey(root, @"_lockView");
+
+    rootView.hidden = NO;
+    rootView.alpha = 1.0;
+
+    if (iconContainer) {
+        iconContainer.hidden = NO;
+        iconContainer.alpha = 1.0;
+    }
+
+    if (lockView) {
+        lockView.hidden = NO;
+        lockView.alpha = 1.0;
+        if (iconContainer && lockView.superview == iconContainer) {
+            [iconContainer bringSubviewToFront:lockView];
+        }
+    }
+}
+
 static BOOL LKWShouldBlockPackageState(id view, id state) {
     if (!enabled || !LKWIsThemedPackage(view) || !LKWHoldingUnlocked(view)) {
         return NO;
     }
 
-    // Locked is the only state that is allowed to end the held final tick.
     if (LKWIsState(state, @"Locked") || LKWIsState(state, @"Unlocked")) {
         return NO;
     }
@@ -108,9 +152,6 @@ static void LKWDidAcceptPackageState(id view, id state, BOOL accepted) {
     if (LKWIsState(state, @"Locked")) {
         LKWSetHoldingUnlocked(view, NO);
     } else if (LKWIsState(state, @"Unlocked")) {
-        // Face_ID_White's Unlocked model state is Face_ID_37.png.
-        // Once this state has been reached, do not let a later Sleep/coaching/
-        // transient package state replace it until the phone locks again.
         LKWSetHoldingUnlocked(view, YES);
     }
 }
@@ -118,24 +159,78 @@ static void LKWDidAcceptPackageState(id view, id state, BOOL accepted) {
 static BOOL LKWCompleteBlockedState(id completion) {
     if (completion) {
         void (^block)(BOOL) = (void (^)(BOOL))completion;
-        block(YES);
+        block(NO);
     }
     return YES;
 }
 
+static void LKWCompleteBlockedRootTransition(id completion) {
+    if (completion) {
+        void (^block)(BOOL) = (void (^)(BOOL))completion;
+        block(NO);
+    }
+}
+
 %hook SBUIProudLockIconView
 
-// iOS 16 exposes this transition path directly. Keep original LatchKey's
-// 16/19 -> Locked behavior here instead of relying on a newer selector.
 - (void)_transitionToState:(long long)state
                   animated:(BOOL)animated
                    options:(long long)options
                 completion:(id)completion {
-    if (enabled && (state == 19 || state == 16)) {
+    if (!enabled) {
+        %orig(state, animated, options, completion);
+        return;
+    }
+
+    // Once Face ID has successfully reached the Unlocked state, keep the
+    // actual proud-lock view on state 2. iOS 16 can send later coaching/
+    // transient states that cause the active lock view to be faded out.
+    // Ignore those until SpringBoard genuinely asks for Locked again.
+    if (LKWRootHoldingUnlocked(self)) {
+        if (state == 1 || state == 0) {
+            LKWSetRootHoldingUnlocked(self, NO);
+        } else if (state != 2) {
+            NSLog(@"[LatchKeyWhite16] keeping proud-lock state 2; blocked outer state %lld", state);
+            LKWForceUnlockedVisibility(self);
+            LKWCompleteBlockedRootTransition(completion);
+            return;
+        }
+    }
+
+    if (!LKWRootHoldingUnlocked(self) && (state == 19 || state == 16)) {
         state = 1;
     }
 
+    if (state == 2) {
+        LKWSetRootHoldingUnlocked(self, YES);
+    }
+
     %orig(state, animated, options, completion);
+
+    if (LKWRootHoldingUnlocked(self)) {
+        LKWForceUnlockedVisibility(self);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (LKWRootHoldingUnlocked(self)) {
+                LKWForceUnlockedVisibility(self);
+            }
+        });
+    }
+}
+
+- (void)setAlpha:(CGFloat)alpha {
+    if (enabled && positionOption != 4 && LKWRootHoldingUnlocked(self)) {
+        %orig(1.0);
+    } else {
+        %orig(alpha);
+    }
+}
+
+- (void)setHidden:(BOOL)hidden {
+    if (enabled && positionOption != 4 && LKWRootHoldingUnlocked(self)) {
+        %orig(NO);
+    } else {
+        %orig(hidden);
+    }
 }
 
 - (void)layoutSubviews {
@@ -143,33 +238,19 @@ static BOOL LKWCompleteBlockedState(id completion) {
 
     if (!enabled) return;
 
-    UIView *lock = nil;
+    UIView *lock = LKWGetViewForKey(self, @"_lockView");
     UIView *coachingView = nil;
 
-    @try {
-        id lockObject = [self valueForKey:@"_lockView"];
-        if ([lockObject isKindOfClass:[UIView class]]) {
-            lock = (UIView *)lockObject;
-        }
-    } @catch (__unused NSException *exception) {
-        return;
+    if (LKWRootHoldingUnlocked(self)) {
+        LKWForceUnlockedVisibility(self);
     }
 
-    // Original LatchKey Default: visible, but do not alter Apple's geometry.
     if (positionOption == 0) {
         self.hidden = NO;
         return;
     }
 
-    @try {
-        id coachingObject = [self valueForKey:@"_lazy_faceIDCoachingView"];
-        if ([coachingObject isKindOfClass:[UIView class]]) {
-            coachingView = (UIView *)coachingObject;
-        }
-    } @catch (__unused NSException *exception) {
-        return;
-    }
-
+    coachingView = LKWGetViewForKey(self, @"_lazy_faceIDCoachingView");
     if (!lock || !coachingView) return;
 
     switch (positionOption) {
@@ -217,6 +298,10 @@ static BOOL LKWCompleteBlockedState(id completion) {
             self.hidden = NO;
             break;
     }
+
+    if (LKWRootHoldingUnlocked(self)) {
+        LKWForceUnlockedVisibility(self);
+    }
 }
 
 %end
@@ -242,6 +327,22 @@ static BOOL LKWCompleteBlockedState(id completion) {
         LKWSetHoldingUnlocked(view, NO);
     }
     return view;
+}
+
+- (void)setAlpha:(CGFloat)alpha {
+    if (enabled && positionOption != 4 && LKWIsThemedPackage(self) && LKWHoldingUnlocked(self)) {
+        %orig(1.0);
+    } else {
+        %orig(alpha);
+    }
+}
+
+- (void)setHidden:(BOOL)hidden {
+    if (enabled && positionOption != 4 && LKWIsThemedPackage(self) && LKWHoldingUnlocked(self)) {
+        %orig(NO);
+    } else {
+        %orig(hidden);
+    }
 }
 
 - (BOOL)setState:(id)state {
