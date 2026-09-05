@@ -21,10 +21,17 @@ static NSString * const LKWPrefsDomain = @"com.551.latchkeywhite16";
 static NSString * const LKWPrefsChanged = @"com.551.latchkeywhite16/preferences.changed";
 
 static BOOL enabled = YES;
+static CGFloat xOffset = 0.0;
+static CGFloat yOffset = 0.0;
+static CGFloat glyphScale = 1.0;
+static NSHashTable *LKWRootViews = nil;
 
 static char LKWThemedPackageKey;
 static char LKWHoldUnlockedKey;
 static char LKWRootUnlockedKey;
+
+static UIView *LKWGetViewForKey(id root, NSString *key);
+static void LKWApplyGeometry(id root);
 
 static id LKWCopyPreference(NSString *key) {
     CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
@@ -33,9 +40,41 @@ static id LKWCopyPreference(NSString *key) {
     return value ? CFBridgingRelease(value) : nil;
 }
 
+static CGFloat LKWClampedScale(CGFloat value) {
+    if (value < 0.25) return 0.25;
+    if (value > 2.0) return 2.0;
+    return value;
+}
+
+static CGFloat LKWClampedOffset(CGFloat value) {
+    if (value < -300.0) return -300.0;
+    if (value > 300.0) return 300.0;
+    return value;
+}
+
 static void LKWRefreshPrefs(void) {
     id value = LKWCopyPreference(@"enabled");
     enabled = value ? [value boolValue] : YES;
+
+    value = LKWCopyPreference(@"xOffset");
+    xOffset = LKWClampedOffset(value ? [value doubleValue] : 0.0);
+
+    value = LKWCopyPreference(@"yOffset");
+    yOffset = LKWClampedOffset(value ? [value doubleValue] : 0.0);
+
+    value = LKWCopyPreference(@"glyphScale");
+    glyphScale = LKWClampedScale(value ? [value doubleValue] : 1.0);
+}
+
+static void LKWRefreshVisibleRoots(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        for (id root in [LKWRootViews allObjects]) {
+            LKWApplyGeometry(root);
+            if ([root respondsToSelector:@selector(setNeedsLayout)]) {
+                [root setNeedsLayout];
+            }
+        }
+    });
 }
 
 static void LKWPrefsChangedCallback(CFNotificationCenterRef center,
@@ -44,6 +83,7 @@ static void LKWPrefsChangedCallback(CFNotificationCenterRef center,
                                     const void *object,
                                     CFDictionaryRef userInfo) {
     LKWRefreshPrefs();
+    LKWRefreshVisibleRoots();
 }
 
 static NSBundle *LKWFaceIDWhiteBundle(void) {
@@ -88,6 +128,27 @@ static UIView *LKWGetViewForKey(id root, NSString *key) {
     }
 }
 
+static void LKWRegisterRoot(id root) {
+    if (!root) return;
+    if (!LKWRootViews) LKWRootViews = [NSHashTable weakObjectsHashTable];
+    [LKWRootViews addObject:root];
+}
+
+static void LKWApplyGeometry(id root) {
+    UIView *lockView = LKWGetViewForKey(root, @"_lockView");
+    if (!lockView) return;
+
+    if (!enabled) {
+        lockView.transform = CGAffineTransformIdentity;
+        return;
+    }
+
+    CGAffineTransform transform = CGAffineTransformMakeScale(glyphScale, glyphScale);
+    transform.tx = xOffset;
+    transform.ty = yOffset;
+    lockView.transform = transform;
+}
+
 static void LKWForceUnlockedVisibility(id root) {
     if (!enabled || !LKWRootHoldingUnlocked(root)) return;
 
@@ -112,6 +173,8 @@ static void LKWForceUnlockedVisibility(id root) {
             [iconContainer bringSubviewToFront:lockView];
         }
     }
+
+    LKWApplyGeometry(root);
 }
 
 static void LKWUpdateRootState(id root, long long state) {
@@ -186,9 +249,11 @@ static BOOL LKWCompleteBlockedState(id completion) {
       updateText:(BOOL)updateText
          options:(long long)options
       completion:(id)completion {
+    LKWRegisterRoot(self);
     long long filtered = LKWFilteredRootState(self, state);
     LKWUpdateRootState(self, filtered);
     %orig(filtered, animated, updateText, options, completion);
+    LKWApplyGeometry(self);
     LKWForceUnlockedVisibility(self);
 }
 
@@ -197,13 +262,16 @@ static BOOL LKWCompleteBlockedState(id completion) {
                 updateText:(BOOL)updateText
                    options:(long long)options
                 completion:(id)completion {
+    LKWRegisterRoot(self);
     long long filtered = LKWFilteredRootState(self, state);
     LKWUpdateRootState(self, filtered);
     %orig(filtered, animated, updateText, options, completion);
+    LKWApplyGeometry(self);
     LKWForceUnlockedVisibility(self);
 
     if (LKWRootHoldingUnlocked(self)) {
         dispatch_async(dispatch_get_main_queue(), ^{
+            LKWApplyGeometry(self);
             LKWForceUnlockedVisibility(self);
         });
     }
@@ -213,9 +281,11 @@ static BOOL LKWCompleteBlockedState(id completion) {
                   animated:(BOOL)animated
                    options:(long long)options
                 completion:(id)completion {
+    LKWRegisterRoot(self);
     long long filtered = LKWFilteredRootState(self, state);
     LKWUpdateRootState(self, filtered);
     %orig(filtered, animated, options, completion);
+    LKWApplyGeometry(self);
     LKWForceUnlockedVisibility(self);
 }
 
@@ -233,6 +303,8 @@ static BOOL LKWCompleteBlockedState(id completion) {
 
 - (void)layoutSubviews {
     %orig;
+    LKWRegisterRoot(self);
+    LKWApplyGeometry(self);
     LKWForceUnlockedVisibility(self);
 }
 
@@ -302,6 +374,7 @@ static BOOL LKWCompleteBlockedState(id completion) {
 
 %ctor {
     @autoreleasepool {
+        LKWRootViews = [NSHashTable weakObjectsHashTable];
         LKWRefreshPrefs();
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL,
