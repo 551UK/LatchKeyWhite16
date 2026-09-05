@@ -2,6 +2,7 @@
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 
 @interface BSUICAPackageView : UIView
 - (instancetype)initWithPackageName:(NSString *)packageName inBundle:(NSBundle *)bundle;
@@ -24,6 +25,7 @@ static BOOL enabled = YES;
 static CGFloat xOffset = 0.0;
 static CGFloat yOffset = 0.0;
 static CGFloat glyphScale = 1.0;
+static UIColor *animationColor = nil;
 static NSHashTable *LKWRootViews = nil;
 
 static char LKWThemedPackageKey;
@@ -32,6 +34,7 @@ static char LKWRootUnlockedKey;
 
 static UIView *LKWGetViewForKey(id root, NSString *key);
 static void LKWApplyGeometry(id root);
+static void LKWApplyAnimationColorToPackage(id view);
 
 static id LKWCopyPreference(NSString *key) {
     CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
@@ -52,6 +55,30 @@ static CGFloat LKWClampedOffset(CGFloat value) {
     return value;
 }
 
+static UIColor *LKWColorFromHexString(NSString *string) {
+    if (![string isKindOfClass:[NSString class]]) return UIColor.whiteColor;
+
+    NSString *hex = [[string stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] uppercaseString];
+    if ([hex hasPrefix:@"#"]) hex = [hex substringFromIndex:1];
+    if (hex.length != 6) return UIColor.whiteColor;
+
+    unsigned int rgb = 0;
+    NSScanner *scanner = [NSScanner scannerWithString:hex];
+    if (![scanner scanHexInt:&rgb]) return UIColor.whiteColor;
+
+    return [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0
+                           green:((rgb >> 8) & 0xFF) / 255.0
+                            blue:(rgb & 0xFF) / 255.0
+                           alpha:1.0];
+}
+
+static BOOL LKWColorIsWhite(UIColor *color) {
+    if (!color) return YES;
+    CGFloat red = 1.0, green = 1.0, blue = 1.0, alpha = 1.0;
+    if (![color getRed:&red green:&green blue:&blue alpha:&alpha]) return NO;
+    return red >= 0.999 && green >= 0.999 && blue >= 0.999;
+}
+
 static void LKWRefreshPrefs(void) {
     id value = LKWCopyPreference(@"enabled");
     enabled = value ? [value boolValue] : YES;
@@ -64,6 +91,9 @@ static void LKWRefreshPrefs(void) {
 
     value = LKWCopyPreference(@"glyphScale");
     glyphScale = LKWClampedScale(value ? [value doubleValue] : 1.0);
+
+    value = LKWCopyPreference(@"animationColor");
+    animationColor = LKWColorFromHexString([value isKindOfClass:[NSString class]] ? value : @"#FFFFFF");
 }
 
 static void LKWRefreshVisibleRoots(void) {
@@ -134,12 +164,37 @@ static void LKWRegisterRoot(id root) {
     [LKWRootViews addObject:root];
 }
 
+static void LKWApplyAnimationColorToPackage(id view) {
+    if (!view || !LKWIsThemedPackage(view) || ![view isKindOfClass:[UIView class]]) return;
+
+    @try {
+        CALayer *layer = ((UIView *)view).layer;
+        if (!enabled || LKWColorIsWhite(animationColor)) {
+            [layer setValue:nil forKey:@"filters"];
+            return;
+        }
+
+        Class filterClass = NSClassFromString(@"CAFilter");
+        SEL selector = NSSelectorFromString(@"filterWithType:");
+        if (!filterClass || ![filterClass respondsToSelector:selector]) return;
+
+        id filter = ((id (*)(id, SEL, id))objc_msgSend)(filterClass, selector, @"colorMonochrome");
+        if (!filter) return;
+
+        [filter setValue:(__bridge id)animationColor.CGColor forKey:@"inputColor"];
+        [filter setValue:@1.0 forKey:@"inputAmount"];
+        [layer setValue:@[filter] forKey:@"filters"];
+    } @catch (__unused NSException *exception) {
+    }
+}
+
 static void LKWApplyGeometry(id root) {
     UIView *lockView = LKWGetViewForKey(root, @"_lockView");
     if (!lockView) return;
 
     if (!enabled) {
         lockView.transform = CGAffineTransformIdentity;
+        LKWApplyAnimationColorToPackage(lockView);
         return;
     }
 
@@ -147,6 +202,7 @@ static void LKWApplyGeometry(id root) {
     transform.tx = xOffset;
     transform.ty = yOffset;
     lockView.transform = transform;
+    LKWApplyAnimationColorToPackage(lockView);
 }
 
 static void LKWForceUnlockedVisibility(id root) {
@@ -326,6 +382,7 @@ static BOOL LKWCompleteBlockedState(id completion) {
     if (view) {
         objc_setAssociatedObject(view, &LKWThemedPackageKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         LKWSetHoldingUnlocked(view, NO);
+        LKWApplyAnimationColorToPackage(view);
     }
     return view;
 }
@@ -342,6 +399,7 @@ static BOOL LKWCompleteBlockedState(id completion) {
     if (LKWShouldBlockPackageState(self, state)) return YES;
     BOOL accepted = %orig(state);
     LKWDidAcceptPackageState(self, state, accepted);
+    LKWApplyAnimationColorToPackage(self);
     return accepted;
 }
 
@@ -349,6 +407,7 @@ static BOOL LKWCompleteBlockedState(id completion) {
     if (LKWShouldBlockPackageState(self, state)) return YES;
     BOOL accepted = %orig(state, animated);
     LKWDidAcceptPackageState(self, state, accepted);
+    LKWApplyAnimationColorToPackage(self);
     return accepted;
 }
 
@@ -359,6 +418,7 @@ static BOOL LKWCompleteBlockedState(id completion) {
     if (LKWShouldBlockPackageState(self, state)) return LKWCompleteBlockedState(completion);
     BOOL accepted = %orig(state, animated, speed, completion);
     LKWDidAcceptPackageState(self, state, accepted);
+    LKWApplyAnimationColorToPackage(self);
     return accepted;
 }
 

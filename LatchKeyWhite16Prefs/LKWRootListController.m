@@ -16,6 +16,34 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
     return posix_spawn(&pid, tool, NULL, NULL, argv, environ) == 0;
 }
 
+static UIColor *LKWColorFromHexString(NSString *string) {
+    if (![string isKindOfClass:[NSString class]]) return UIColor.whiteColor;
+    NSString *hex = [[string stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] uppercaseString];
+    if ([hex hasPrefix:@"#"]) hex = [hex substringFromIndex:1];
+    if (hex.length != 6) return UIColor.whiteColor;
+
+    unsigned int rgb = 0;
+    NSScanner *scanner = [NSScanner scannerWithString:hex];
+    if (![scanner scanHexInt:&rgb]) return UIColor.whiteColor;
+
+    return [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0
+                           green:((rgb >> 8) & 0xFF) / 255.0
+                            blue:(rgb & 0xFF) / 255.0
+                           alpha:1.0];
+}
+
+static NSString *LKWHexStringFromColor(UIColor *color) {
+    CGFloat red = 1.0, green = 1.0, blue = 1.0, alpha = 1.0;
+    if (![color getRed:&red green:&green blue:&blue alpha:&alpha]) return @"#FFFFFF";
+    return [NSString stringWithFormat:@"#%02X%02X%02X",
+            (unsigned int)lrint(red * 255.0),
+            (unsigned int)lrint(green * 255.0),
+            (unsigned int)lrint(blue * 255.0)];
+}
+
+@interface LKWRootListController () <UIColorPickerViewControllerDelegate>
+@end
+
 @implementation LKWRootListController
 
 - (void)viewDidLoad {
@@ -52,6 +80,32 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
                                                      key:@"enabled"
                                             defaultValue:@YES
                                                     cell:PSSwitchCell]];
+
+    PSSpecifier *appearanceGroup = [PSSpecifier groupSpecifierWithName:@"Appearance"];
+    [appearanceGroup setProperty:@"Choose any animation colour. White restores the original animation exactly." forKey:@"footerText"];
+    [specifiers addObject:appearanceGroup];
+
+    PSSpecifier *color = [PSSpecifier preferenceSpecifierNamed:@"Animation Color"
+                                                        target:self
+                                                           set:nil
+                                                           get:nil
+                                                        detail:nil
+                                                          cell:PSButtonCell
+                                                          edit:nil];
+    [color setButtonAction:@selector(openColorPicker)];
+    [color setProperty:NSStringFromSelector(@selector(openColorPicker)) forKey:@"action"];
+    [specifiers addObject:color];
+
+    PSSpecifier *resetColor = [PSSpecifier preferenceSpecifierNamed:@"Reset Color to White"
+                                                             target:self
+                                                                set:nil
+                                                                get:nil
+                                                             detail:nil
+                                                               cell:PSButtonCell
+                                                               edit:nil];
+    [resetColor setButtonAction:@selector(resetAnimationColor)];
+    [resetColor setProperty:NSStringFromSelector(@selector(resetAnimationColor)) forKey:@"action"];
+    [specifiers addObject:resetColor];
 
     PSSpecifier *positionGroup = [PSSpecifier groupSpecifierWithName:@"Position & Scale"];
     [positionGroup setProperty:@"Changes apply directly to the real lock glyph. Positive X moves right; positive Y moves down. Scale range: 0.25 to 2.0." forKey:@"footerText"];
@@ -134,6 +188,14 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
     return value ? CFBridgingRelease(value) : fallback;
 }
 
+- (NSString *)currentAnimationColorHex {
+    CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
+    CFPropertyListRef value = CFPreferencesCopyAppValue(CFSTR("animationColor"),
+                                                        (__bridge CFStringRef)LKWPrefsDomain);
+    id object = value ? CFBridgingRelease(value) : nil;
+    return [object isKindOfClass:[NSString class]] ? object : @"#FFFFFF";
+}
+
 - (void)postPreferencesChanged {
     CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
@@ -163,6 +225,40 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
                              (__bridge CFPropertyListRef)value,
                              (__bridge CFStringRef)LKWPrefsDomain);
     [self postPreferencesChanged];
+}
+
+- (void)openColorPicker {
+    UIColorPickerViewController *picker = [[UIColorPickerViewController alloc] init];
+    picker.delegate = self;
+    picker.selectedColor = LKWColorFromHexString([self currentAnimationColorHex]);
+    if ([picker respondsToSelector:@selector(setSupportsAlpha:)]) {
+        picker.supportsAlpha = NO;
+    }
+    picker.title = @"Animation Color";
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)openColorPicker:(id)sender {
+    [self openColorPicker];
+}
+
+- (void)colorPickerViewControllerDidSelectColor:(UIColorPickerViewController *)viewController {
+    NSString *hex = LKWHexStringFromColor(viewController.selectedColor ?: UIColor.whiteColor);
+    CFPreferencesSetAppValue(CFSTR("animationColor"),
+                             (__bridge CFPropertyListRef)hex,
+                             (__bridge CFStringRef)LKWPrefsDomain);
+    [self postPreferencesChanged];
+}
+
+- (void)resetAnimationColor {
+    CFPreferencesSetAppValue(CFSTR("animationColor"),
+                             (__bridge CFPropertyListRef)@"#FFFFFF",
+                             (__bridge CFStringRef)LKWPrefsDomain);
+    [self postPreferencesChanged];
+}
+
+- (void)resetAnimationColor:(id)sender {
+    [self resetAnimationColor];
 }
 
 - (void)resetGeometry {

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: latchkeywhite16-release-v134
+  group: latchkeywhite16-release-v135
   cancel-in-progress: true
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
           python3 -c "import base64,pathlib; pathlib.Path('$ICON').write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAYAAAA5ZDbSAAACfklEQVR42u3c0U7jMBBG4cTiEejy/o/HlnfYvVghdUuB0NgTz/Q7l0jUZA7ze5xGWRYAAHAEa8Qiz8+//ij1bd7efq8pBZM6h+yV1NqyV2Jri27kzs3e+jZya0teia0d2Y3c2t3cyK0tuZFbW3JTqto03Vu7ixu5tSU3cmtLtgc/6h6se2t0sQ42RaOcYPFcJ6Z1sIhGKcHiuVZM62ARDYJBMAjGAJ4iFzufX+/+3dPpZbri3Xs9kdfSMsitRmQtGrm1JduDi0sm2BQNguGYlOn40/tvP3LI1MEiGgSDYBAMgkEwCCYYZfjwxhaPzebn8k08Txkv4PrW38jbnZFriejl9n3dUfd6I9ci+Jvi9i585FojSRnRvYRl/ibLFA2CCZ6MryK1d9xGrkXwN8UdVfDItQxZBxU5+yBmD7YHg2AQDIJBMAhG/nNwL7J/16uDQTDBRTidXh7i+18dbMiq38k6GARDRH963uwZme+fHfFs9L1rjLz+sh18Pr/+V7iIZ6MzvtCtVERfSx/xWR58n2Aa3ivhyEh1TLoq9mcyLn++RcqWf4qMR6z05+CvJPeM1azn5xJ78OjiZ745UmbIinw2WkRPILna2+UJ3im76j3qwwVv7bQ9AkbJy3Amdi+6OAQTDIIfdIDZW5OIurTIC0J8LVrVC8M/vOmuIJdvujNkGbJAMAgGwYgQfDmBIfcErYNFNEoKFtM14lkHi2iUFSym88ezDn70iNbFubt3UweTnFfu5ogmOadce7Bjki7O3L0/7mCSc8m9K6JJziN3WW48dPcTPKA3r9guQ5Zunltulyma5Hnl7o5okT2v2CGCyZ4vDUPilWxbHADgA38BqrAMxBtRJ4kAAAAASUVORK5CYII='))"
           test -s "$ICON"
 
-      - name: Verify working iOS 16 path and Settings icon
+      - name: Verify working iOS 16 path, color picker and Settings icon
         run: |
           CAML="layout/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml"
           ICON_PLIST="layout/Library/PreferenceLoader/Preferences/LatchKeyWhite16.plist"
@@ -63,6 +63,9 @@ jobs:
           grep -q 'xOffset' Tweak.xm
           grep -q 'yOffset' Tweak.xm
           grep -q 'glyphScale' Tweak.xm
+          grep -q 'animationColor' Tweak.xm
+          grep -q 'colorMonochrome' Tweak.xm
+          grep -q 'LKWApplyAnimationColorToPackage' Tweak.xm
           grep -q 'CGAffineTransformMakeScale' Tweak.xm
           grep -q 'transform.tx = xOffset' Tweak.xm
           grep -q 'transform.ty = yOffset' Tweak.xm
@@ -72,12 +75,14 @@ jobs:
           grep -q 'Y Offset' LatchKeyWhite16Prefs/LKWRootListController.m
           grep -q 'Scale' LatchKeyWhite16Prefs/LKWRootListController.m
           grep -q 'Reset Position & Scale' LatchKeyWhite16Prefs/LKWRootListController.m
+          grep -q 'Animation Color' LatchKeyWhite16Prefs/LKWRootListController.m
+          grep -q 'UIColorPickerViewController' LatchKeyWhite16Prefs/LKWRootListController.m
+          grep -q 'Reset Color to White' LatchKeyWhite16Prefs/LKWRootListController.m
 
           ! grep -q 'positionOption' Tweak.xm
           ! grep -q 'PSLinkListCell' LatchKeyWhite16Prefs/LKWRootListController.m
           ! grep -q 'LKWOwnedPackage' Tweak.xm
           ! grep -q 'LKWPausePackageLayer' Tweak.xm
-          ! grep -q 'QuartzCore' Tweak.xm
 
       - name: Build rootless package
         run: |
@@ -115,7 +120,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.3.4"
+          TAG="v1.3.5"
 
           gh release list --limit 100 --json tagName --jq '.[].tagName' | while read -r OLD_TAG; do
             [ -z "$OLD_TAG" ] && continue
@@ -133,7 +138,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.3.4"
+          TAG="v1.3.5"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -142,6 +147,6 @@ jobs:
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
 
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.3.4" \
-            --notes "Same working v1.3.4 tweak code with a real bundled Face ID-style PNG icon for the PreferenceLoader Settings entry." \
+            --title "LatchKey White 16 v1.3.5" \
+            --notes "Adds a native iOS color picker for the Face ID animation. White remains the default and restores the original appearance. Existing position, scale, persistence and Settings icon behavior are retained." \
             --latest
