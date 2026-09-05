@@ -6,6 +6,10 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: latchkeywhite16-release
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -29,7 +33,7 @@ jobs:
           mkdir -p "$DEST"
           cp -R "$SRC" "$DEST/Face_ID_White.bundle"
 
-      - name: Verify real iOS transition path
+      - name: Verify working iOS 16 path
         run: |
           CAML="layout/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml"
           test -f "$CAML"
@@ -37,16 +41,22 @@ jobs:
           grep -q '<LKState name="Unlocked"' "$CAML"
           grep -q 'Face_ID_37.png' "$CAML"
 
-          grep -q '_transitionToState:(long long)state' Tweak.xm
           grep -q 'updateText:(BOOL)updateText' Tweak.xm
           grep -q '_activeViewsForState:(long long)state' Tweak.xm
           grep -q 'LKWViewsByKeepingLockActive' Tweak.xm
           grep -q '_shouldApplyScaleAndBlurForAuthenticated' Tweak.xm
           grep -q 'LKWForceUnlockedVisibility' Tweak.xm
 
+          ! grep -q 'positionOption' Tweak.xm
+          ! grep -q 'xPos' Tweak.xm
+          ! grep -q 'yPos' Tweak.xm
           ! grep -q 'LKWOwnedPackage' Tweak.xm
           ! grep -q 'LKWPausePackageLayer' Tweak.xm
           ! grep -q 'QuartzCore' Tweak.xm
+
+          ! grep -q 'PSLinkListCell' LatchKeyWhite16Prefs/LKWRootListController.m
+          ! grep -q 'Reset Position' LatchKeyWhite16Prefs/LKWRootListController.m
+          ! grep -q 'Custom Positioning' LatchKeyWhite16Prefs/LKWRootListController.m
 
       - name: Build rootless package
         run: |
@@ -79,17 +89,37 @@ jobs:
           name: LatchKeyWhite16-deb
           path: packages/*.deb
 
+      - name: Remove old releases and tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v1.3.3"
+
+          gh release list --limit 100 --json tagName --jq '.[].tagName' | while read -r OLD_TAG; do
+            [ -z "$OLD_TAG" ] && continue
+            [ "$OLD_TAG" = "$TAG" ] && continue
+            gh release delete "$OLD_TAG" --yes --cleanup-tag || true
+          done
+
+          gh api --paginate "repos/$GITHUB_REPOSITORY/tags?per_page=100" --jq '.[].name' | while read -r OLD_TAG; do
+            [ -z "$OLD_TAG" ] && continue
+            [ "$OLD_TAG" = "$TAG" ] && continue
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$OLD_TAG" >/dev/null 2>&1 || true
+          done
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.3.2"
+          TAG="v1.3.3"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
+
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
+
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.3.2" \
-            --notes "Hooks SpringBoard's actual updateText proud-lock transition path and forces the real _lockView to remain in _activeViewsForState while unlocked, preventing Apple's transition completion from fading it as an outgoing view. Also disables authenticated scale/blur for the proud-lock controller. No overlay, snapshot or duplicate glyph." \
+            --title "LatchKey White 16 v1.3.3" \
+            --notes "Cleaned working iOS 16 build. Keeps the v1.3.2 proud-lock fix, removes unused positioning code/settings, and leaves only Enable, Respring and GitHub in preferences." \
             --latest
