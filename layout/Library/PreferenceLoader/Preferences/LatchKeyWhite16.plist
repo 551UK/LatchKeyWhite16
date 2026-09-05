@@ -16,8 +16,8 @@
         <string>LKWRootListController</string>
         <key>isController</key>
         <true/>
-        <key>iconImageSystem</key>
-        <string>faceid</string>
+        <key>icon</key>
+        <string>/var/jb/Library/PreferenceLoader/Preferences/LatchKeyWhite16.png</string>
     </dict>
 </dict>
 </plist>
