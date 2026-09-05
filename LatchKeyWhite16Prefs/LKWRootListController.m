@@ -53,6 +53,42 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
                                             defaultValue:@YES
                                                     cell:PSSwitchCell]];
 
+    PSSpecifier *positionGroup = [PSSpecifier groupSpecifierWithName:@"Position & Scale"];
+    [positionGroup setProperty:@"Changes apply directly to the real lock glyph. Positive X moves right; positive Y moves down. Scale range: 0.25 to 2.0." forKey:@"footerText"];
+    [specifiers addObject:positionGroup];
+
+    PSSpecifier *x = [self preferenceSpecifierNamed:@"X Offset"
+                                                 key:@"xOffset"
+                                        defaultValue:@0.0
+                                                cell:PSEditTextCell];
+    [x setProperty:@"0" forKey:@"placeholder"];
+    [specifiers addObject:x];
+
+    PSSpecifier *y = [self preferenceSpecifierNamed:@"Y Offset"
+                                                 key:@"yOffset"
+                                        defaultValue:@0.0
+                                                cell:PSEditTextCell];
+    [y setProperty:@"0" forKey:@"placeholder"];
+    [specifiers addObject:y];
+
+    PSSpecifier *scale = [self preferenceSpecifierNamed:@"Scale"
+                                                     key:@"glyphScale"
+                                            defaultValue:@1.0
+                                                    cell:PSEditTextCell];
+    [scale setProperty:@"1.0" forKey:@"placeholder"];
+    [specifiers addObject:scale];
+
+    PSSpecifier *reset = [PSSpecifier preferenceSpecifierNamed:@"Reset Position & Scale"
+                                                         target:self
+                                                            set:nil
+                                                            get:nil
+                                                         detail:nil
+                                                           cell:PSButtonCell
+                                                           edit:nil];
+    [reset setButtonAction:@selector(resetGeometry)];
+    [reset setProperty:NSStringFromSelector(@selector(resetGeometry)) forKey:@"action"];
+    [specifiers addObject:reset];
+
     [specifiers addObject:[PSSpecifier groupSpecifierWithName:@"Actions"]];
 
     PSSpecifier *respring = [PSSpecifier preferenceSpecifierNamed:@"Respring"
@@ -98,20 +134,47 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
     return value ? CFBridgingRelease(value) : fallback;
 }
 
-- (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
-    NSString *key = [specifier propertyForKey:@"key"];
-    if (!key) return;
-
-    CFPreferencesSetAppValue((__bridge CFStringRef)key,
-                             (__bridge CFPropertyListRef)value,
-                             (__bridge CFStringRef)LKWPrefsDomain);
+- (void)postPreferencesChanged {
     CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
-
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
                                          (__bridge CFStringRef)LKWPrefsChanged,
                                          NULL,
                                          NULL,
                                          true);
+}
+
+- (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
+    NSString *key = [specifier propertyForKey:@"key"];
+    if (!key) return;
+
+    if ([key isEqualToString:@"xOffset"] || [key isEqualToString:@"yOffset"]) {
+        double number = [value doubleValue];
+        if (number < -300.0) number = -300.0;
+        if (number > 300.0) number = 300.0;
+        value = @(number);
+    } else if ([key isEqualToString:@"glyphScale"]) {
+        double number = [value doubleValue];
+        if (number < 0.25) number = 0.25;
+        if (number > 2.0) number = 2.0;
+        value = @(number);
+    }
+
+    CFPreferencesSetAppValue((__bridge CFStringRef)key,
+                             (__bridge CFPropertyListRef)value,
+                             (__bridge CFStringRef)LKWPrefsDomain);
+    [self postPreferencesChanged];
+}
+
+- (void)resetGeometry {
+    CFPreferencesSetAppValue(CFSTR("xOffset"), (__bridge CFPropertyListRef)@0.0, (__bridge CFStringRef)LKWPrefsDomain);
+    CFPreferencesSetAppValue(CFSTR("yOffset"), (__bridge CFPropertyListRef)@0.0, (__bridge CFStringRef)LKWPrefsDomain);
+    CFPreferencesSetAppValue(CFSTR("glyphScale"), (__bridge CFPropertyListRef)@1.0, (__bridge CFStringRef)LKWPrefsDomain);
+    [self postPreferencesChanged];
+    [self reloadSpecifiers];
+}
+
+- (void)resetGeometry:(id)sender {
+    [self resetGeometry];
 }
 
 - (void)openRepo {
