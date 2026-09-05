@@ -29,7 +29,7 @@ jobs:
           mkdir -p "$DEST"
           cp -R "$SRC" "$DEST/Face_ID_White.bundle"
 
-      - name: Verify persistent Unlocked view
+      - name: Verify real iOS transition path
         run: |
           CAML="layout/Library/Application Support/LatchKeyWhite16/Face_ID_White.bundle/Face_ID_White.ca/main.caml"
           test -f "$CAML"
@@ -37,12 +37,12 @@ jobs:
           grep -q '<LKState name="Unlocked"' "$CAML"
           grep -q 'Face_ID_37.png' "$CAML"
 
-          grep -q 'LKWRootUnlockedKey' Tweak.xm
-          grep -q 'keeping proud-lock state 2' Tweak.xm
+          grep -q '_transitionToState:(long long)state' Tweak.xm
+          grep -q 'updateText:(BOOL)updateText' Tweak.xm
+          grep -q '_activeViewsForState:(long long)state' Tweak.xm
+          grep -q 'LKWViewsByKeepingLockActive' Tweak.xm
+          grep -q '_shouldApplyScaleAndBlurForAuthenticated' Tweak.xm
           grep -q 'LKWForceUnlockedVisibility' Tweak.xm
-          grep -q 'keeping Unlocked; blocked package state' Tweak.xm
-          grep -q 'setAlpha:(CGFloat)alpha' Tweak.xm
-          grep -q 'setHidden:(BOOL)hidden' Tweak.xm
 
           ! grep -q 'LKWOwnedPackage' Tweak.xm
           ! grep -q 'LKWPausePackageLayer' Tweak.xm
@@ -83,13 +83,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.3.1"
+          TAG="v1.3.2"
           DEB="$(find packages -name '*.deb' -type f | head -n 1)"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release delete "$TAG" --yes --cleanup-tag
           fi
           gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$TAG" >/dev/null 2>&1 || true
           gh release create "$TAG" "$DEB" \
-            --title "LatchKey White 16 v1.3.1" \
-            --notes "Keeps SpringBoard's actual proud-lock view on state 2 after Face ID succeeds and prevents the real Face ID White package/root view from being faded or hidden. Later coaching/transient proud-lock states are ignored until a genuine Locked state arrives. No overlay, snapshot, duplicate package or animation freeze." \
+            --title "LatchKey White 16 v1.3.2" \
+            --notes "Hooks SpringBoard's actual updateText proud-lock transition path and forces the real _lockView to remain in _activeViewsForState while unlocked, preventing Apple's transition completion from fading it as an outgoing view. Also disables authenticated scale/blur for the proud-lock controller. No overlay, snapshot or duplicate glyph." \
             --latest

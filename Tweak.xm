@@ -11,10 +11,10 @@
 @end
 
 @interface SBUIProudLockIconView : UIView
-- (void)_transitionToState:(long long)state
-                  animated:(BOOL)animated
-                   options:(long long)options
-                completion:(id)completion;
+- (void)setState:(long long)state animated:(BOOL)animated updateText:(BOOL)updateText options:(long long)options completion:(id)completion;
+- (void)_transitionToState:(long long)state animated:(BOOL)animated updateText:(BOOL)updateText options:(long long)options completion:(id)completion;
+- (void)_transitionToState:(long long)state animated:(BOOL)animated options:(long long)options completion:(id)completion;
+- (id)_activeViewsForState:(long long)state;
 @end
 
 static NSString * const LKWPrefsDomain = @"com.551.latchkeywhite16";
@@ -117,8 +117,10 @@ static void LKWForceUnlockedVisibility(id root) {
     UIView *iconContainer = LKWGetViewForKey(root, @"_iconContainerView");
     UIView *lockView = LKWGetViewForKey(root, @"_lockView");
 
-    rootView.hidden = NO;
-    rootView.alpha = 1.0;
+    if (rootView) {
+        rootView.hidden = NO;
+        rootView.alpha = 1.0;
+    }
 
     if (iconContainer) {
         iconContainer.hidden = NO;
@@ -132,6 +134,56 @@ static void LKWForceUnlockedVisibility(id root) {
             [iconContainer bringSubviewToFront:lockView];
         }
     }
+}
+
+static void LKWUpdateRootState(id root, long long state) {
+    if (state == 1 || state == 0) {
+        LKWSetRootHoldingUnlocked(root, NO);
+    } else if (state == 2) {
+        LKWSetRootHoldingUnlocked(root, YES);
+    }
+}
+
+static long long LKWFilteredRootState(id root, long long state) {
+    if (!enabled) return state;
+
+    if (LKWRootHoldingUnlocked(root)) {
+        if (state == 1 || state == 0 || state == 2) {
+            return state;
+        }
+        NSLog(@"[LatchKeyWhite16] remapping post-unlock proud-lock state %lld to 2", state);
+        return 2;
+    }
+
+    if (state == 19 || state == 16) {
+        return 1;
+    }
+
+    return state;
+}
+
+static id LKWViewsByKeepingLockActive(id root, id views, long long state) {
+    if (!enabled || positionOption == 4) return views;
+    if (state != 2 && !LKWRootHoldingUnlocked(root)) return views;
+
+    UIView *lockView = LKWGetViewForKey(root, @"_lockView");
+    if (!lockView) return views;
+
+    if ([views isKindOfClass:[NSArray class]]) {
+        NSArray *array = (NSArray *)views;
+        if ([array containsObject:lockView]) return array;
+        return [array arrayByAddingObject:lockView];
+    }
+
+    if ([views isKindOfClass:[NSSet class]]) {
+        NSSet *set = (NSSet *)views;
+        if ([set containsObject:lockView]) return set;
+        NSMutableSet *mutable = [set mutableCopy];
+        [mutable addObject:lockView];
+        return [mutable copy];
+    }
+
+    return views;
 }
 
 static BOOL LKWShouldBlockPackageState(id view, id state) {
@@ -164,49 +216,29 @@ static BOOL LKWCompleteBlockedState(id completion) {
     return YES;
 }
 
-static void LKWCompleteBlockedRootTransition(id completion) {
-    if (completion) {
-        void (^block)(BOOL) = (void (^)(BOOL))completion;
-        block(NO);
+%hook SBUIProudLockIconView
+
+- (void)setState:(long long)state
+        animated:(BOOL)animated
+      updateText:(BOOL)updateText
+         options:(long long)options
+      completion:(id)completion {
+    long long filtered = LKWFilteredRootState(self, state);
+    LKWUpdateRootState(self, filtered);
+    %orig(filtered, animated, updateText, options, completion);
+    if (LKWRootHoldingUnlocked(self)) {
+        LKWForceUnlockedVisibility(self);
     }
 }
 
-%hook SBUIProudLockIconView
-
 - (void)_transitionToState:(long long)state
                   animated:(BOOL)animated
+                updateText:(BOOL)updateText
                    options:(long long)options
                 completion:(id)completion {
-    if (!enabled) {
-        %orig(state, animated, options, completion);
-        return;
-    }
-
-    // Once Face ID has successfully reached the Unlocked state, keep the
-    // actual proud-lock view on state 2. iOS 16 can send later coaching/
-    // transient states that cause the active lock view to be faded out.
-    // Ignore those until SpringBoard genuinely asks for Locked again.
-    if (LKWRootHoldingUnlocked(self)) {
-        if (state == 1 || state == 0) {
-            LKWSetRootHoldingUnlocked(self, NO);
-        } else if (state != 2) {
-            NSLog(@"[LatchKeyWhite16] keeping proud-lock state 2; blocked outer state %lld", state);
-            LKWForceUnlockedVisibility(self);
-            LKWCompleteBlockedRootTransition(completion);
-            return;
-        }
-    }
-
-    if (!LKWRootHoldingUnlocked(self) && (state == 19 || state == 16)) {
-        state = 1;
-    }
-
-    if (state == 2) {
-        LKWSetRootHoldingUnlocked(self, YES);
-    }
-
-    %orig(state, animated, options, completion);
-
+    long long filtered = LKWFilteredRootState(self, state);
+    LKWUpdateRootState(self, filtered);
+    %orig(filtered, animated, updateText, options, completion);
     if (LKWRootHoldingUnlocked(self)) {
         LKWForceUnlockedVisibility(self);
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -215,6 +247,24 @@ static void LKWCompleteBlockedRootTransition(id completion) {
             }
         });
     }
+}
+
+// Kept for iOS 16 builds that expose the older transition selector too.
+- (void)_transitionToState:(long long)state
+                  animated:(BOOL)animated
+                   options:(long long)options
+                completion:(id)completion {
+    long long filtered = LKWFilteredRootState(self, state);
+    LKWUpdateRootState(self, filtered);
+    %orig(filtered, animated, options, completion);
+    if (LKWRootHoldingUnlocked(self)) {
+        LKWForceUnlockedVisibility(self);
+    }
+}
+
+- (id)_activeViewsForState:(long long)state {
+    id views = %orig(state);
+    return LKWViewsByKeepingLockActive(self, views, state);
 }
 
 - (void)setAlpha:(CGFloat)alpha {
@@ -379,6 +429,15 @@ static void LKWCompleteBlockedRootTransition(id completion) {
     BOOL accepted = %orig(state, animated, speed, completion);
     LKWDidAcceptPackageState(self, state, accepted);
     return accepted;
+}
+
+%end
+
+%hook CSProudLockViewController
+
+- (BOOL)_shouldApplyScaleAndBlurForAuthenticated {
+    if (enabled) return NO;
+    return %orig;
 }
 
 %end
