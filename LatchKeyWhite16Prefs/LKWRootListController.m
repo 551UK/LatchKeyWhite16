@@ -45,67 +45,13 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
     NSMutableArray *specifiers = [NSMutableArray array];
 
     PSSpecifier *mainGroup = [PSSpecifier groupSpecifierWithName:@"LatchKey"];
-    [mainGroup setProperty:@"Rootless iOS 16 port using the original LatchKey Face ID White animation." forKey:@"footerText"];
+    [mainGroup setProperty:@"Original LatchKey Face ID White animation for rootless iOS 16." forKey:@"footerText"];
     [specifiers addObject:mainGroup];
 
     [specifiers addObject:[self preferenceSpecifierNamed:@"Enable"
                                                      key:@"enabled"
                                             defaultValue:@YES
                                                     cell:PSSwitchCell]];
-
-    PSSpecifier *position = [self preferenceSpecifierNamed:@"Position"
-                                                        key:@"positionOption"
-                                               defaultValue:@0
-                                                       cell:PSLinkListCell];
-    [position setProperty:NSClassFromString(@"PSListItemsController") forKey:@"detail"];
-    [position setProperty:@[@"Default",
-                            @"Status Bar",
-                            @"Compact Status Bar (right)",
-                            @"Compact Status Bar (left)",
-                            @"Hidden",
-                            @"Custom"]
-                 forKey:@"validTitles"];
-    [position setProperty:@[@0, @1, @2, @3, @4, @5] forKey:@"validValues"];
-    [specifiers addObject:position];
-
-    PSSpecifier *customGroup = [PSSpecifier groupSpecifierWithName:@"Custom Positioning"];
-    [customGroup setProperty:@"Default leaves Apple's lock position untouched. Choose Custom to use these values." forKey:@"footerText"];
-    [specifiers addObject:customGroup];
-
-    PSSpecifier *x = [self preferenceSpecifierNamed:@"X Position"
-                                                 key:@"xPos"
-                                        defaultValue:@176.0
-                                                cell:PSEditTextCell];
-    [x setProperty:@YES forKey:@"isNumeric"];
-    [x setProperty:@"176" forKey:@"placeholder"];
-    [specifiers addObject:x];
-
-    PSSpecifier *y = [self preferenceSpecifierNamed:@"Y Position"
-                                                 key:@"yPos"
-                                        defaultValue:@53.0
-                                                cell:PSEditTextCell];
-    [y setProperty:@YES forKey:@"isNumeric"];
-    [y setProperty:@"53" forKey:@"placeholder"];
-    [specifiers addObject:y];
-
-    PSSpecifier *scale = [self preferenceSpecifierNamed:@"Scale"
-                                                     key:@"scale"
-                                            defaultValue:@1.0
-                                                    cell:PSEditTextCell];
-    [scale setProperty:@YES forKey:@"isDecimalPad"];
-    [scale setProperty:@"1.0" forKey:@"placeholder"];
-    [specifiers addObject:scale];
-
-    PSSpecifier *reset = [PSSpecifier preferenceSpecifierNamed:@"Reset Position"
-                                                         target:self
-                                                            set:nil
-                                                            get:nil
-                                                         detail:nil
-                                                           cell:PSButtonCell
-                                                           edit:nil];
-    [reset setButtonAction:@selector(resetPosition)];
-    [reset setProperty:NSStringFromSelector(@selector(resetPosition)) forKey:@"action"];
-    [specifiers addObject:reset];
 
     [specifiers addObject:[PSSpecifier groupSpecifierWithName:@"Actions"]];
 
@@ -166,28 +112,6 @@ static BOOL LKWSpawnTool(const char *tool, char * const argv[]) {
                                          NULL,
                                          NULL,
                                          true);
-}
-
-- (void)postPreferencesChanged {
-    CFPreferencesAppSynchronize((__bridge CFStringRef)LKWPrefsDomain);
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                         (__bridge CFStringRef)LKWPrefsChanged,
-                                         NULL,
-                                         NULL,
-                                         true);
-}
-
-- (void)resetPosition {
-    CFPreferencesSetAppValue(CFSTR("positionOption"), (__bridge CFPropertyListRef)@0, (__bridge CFStringRef)LKWPrefsDomain);
-    CFPreferencesSetAppValue(CFSTR("xPos"), (__bridge CFPropertyListRef)@176.0, (__bridge CFStringRef)LKWPrefsDomain);
-    CFPreferencesSetAppValue(CFSTR("yPos"), (__bridge CFPropertyListRef)@53.0, (__bridge CFStringRef)LKWPrefsDomain);
-    CFPreferencesSetAppValue(CFSTR("scale"), (__bridge CFPropertyListRef)@1.0, (__bridge CFStringRef)LKWPrefsDomain);
-    [self postPreferencesChanged];
-    [self reloadSpecifiers];
-}
-
-- (void)resetPosition:(id)sender {
-    [self resetPosition];
 }
 
 - (void)openRepo {
