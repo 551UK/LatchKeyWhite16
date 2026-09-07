@@ -38,6 +38,7 @@ jobs:
           ICON="layout/Library/PreferenceLoader/Preferences/LatchKeyWhite16.png"
           mkdir -p "$(dirname "$ICON")"
           python3 -c "import base64,pathlib; pathlib.Path('$ICON').write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAYAAAA5ZDbSAAACfklEQVR42u3c0U7jMBBG4cTiEejy/o/HlnfYvVghdUuB0NgTz/Q7l0jUZA7ze5xGWRYAAHAEa8Qiz8+//ij1bd7efq8pBZM6h+yV1NqyV2Jri27kzs3e+jZya0teia0d2Y3c2t3cyK0tuZFbW3JTqto03Vu7ixu5tSU3cmtLtgc/6h6se2t0sQ42RaOcYPFcJ6Z1sIhGKcHiuVZM62ARDYJBMAjGAJ4iFzufX+/+3dPpZbri3Xs9kdfSMsitRmQtGrm1JduDi0sm2BQNguGYlOn40/tvP3LI1MEiGgSDYBAMgkEwCCYYZfjwxhaPzebn8k08Txkv4PrW38jbnZFriejl9n3dUfd6I9ci+Jvi9i585FojSRnRvYRl/ibLFA2CCZ6MryK1d9xGrkXwN8UdVfDItQxZBxU5+yBmD7YHg2AQDIJBMAhG/nNwL7J/16uDQTDBRTidXh7i+18dbMiq38k6GARDRH963uwZme+fHfFs9L1rjLz+sh18Pr/+V7iIZ6MzvtCtVERfSx/xWR58n2Aa3ivhyEh1TLoq9mcyLn++RcqWf4qMR6z05+CvJPeM1azn5xJ78OjiZ745UmbIinw2WkRPILna2+UJ3im76j3qwwVv7bQ9AkbJy3Amdi+6OAQTDIIfdIDZW5OIurTIC0J8LVrVC8M/vOmuIJdvujNkGbJAMAgGwYgQfDmBIfcErYNFNEoKFtM14lkHi2iUFSym88ezDn70iNbFubt3UweTnFfu5ogmOadce7Bjki7O3L0/7mCSc8m9K6JJziN3WW48dPcTPKA3r9guQ5Zunltulyma5Hnl7o5okT2v2CGCyZ4vDUPilWxbHADgA38BqrAMxBtRJ4kAAAAASUVORK5CYII='))"
+          sips -z 29 29 "$ICON" >/dev/null
           test -s "$ICON"
 
       - name: Verify working iOS 16 path, color picker and Settings icon
